@@ -360,6 +360,7 @@ cat > "$dashboard_file" << HTMLEOF
     main {
       padding: 24px 32px;
       animation: fadeIn 0.3s ease-in;
+      transition: opacity 0.15s ease;
     }
 
     .section-title {
@@ -641,6 +642,7 @@ fi
 # Close HTML
 cat >> "$dashboard_file" << 'HTMLEOF'
   </main>
+  <iframe id="poll-frame" style="display:none"></iframe>
   <script>
     // Elapsed time calculation
     function formatElapsed(startedStr) {
@@ -671,10 +673,42 @@ cat >> "$dashboard_file" << 'HTMLEOF'
     updateElapsed();
     setInterval(updateElapsed, 60000);
 
-    // Take over refresh from meta tag for programmatic control
+    // Remove meta refresh so page never hard-reloads
     var meta = document.querySelector('meta[http-equiv="refresh"]');
     if (meta) meta.remove();
-    setInterval(function() { location.reload(); }, 5000);
+
+    // Smooth content swap via hidden iframe
+    // Loads the same file in a hidden iframe, extracts <main> content,
+    // and swaps it into the visible page without a full reload.
+    var lastContent = document.querySelector('main').innerHTML;
+
+    function pollForChanges() {
+      var iframe = document.getElementById('poll-frame');
+      iframe.onload = function() {
+        try {
+          var newMain = iframe.contentDocument.querySelector('main');
+          if (newMain) {
+            var newContent = newMain.innerHTML;
+            if (newContent !== lastContent) {
+              lastContent = newContent;
+              var main = document.querySelector('main');
+              main.style.opacity = '0';
+              setTimeout(function() {
+                main.innerHTML = newContent;
+                updateElapsed();
+                main.style.opacity = '1';
+              }, 150);
+            }
+          }
+        } catch(e) {
+          // Cross-origin or load error; fall back to full reload
+          location.reload();
+        }
+      };
+      iframe.src = location.href + '?' + Date.now();
+    }
+
+    setInterval(pollForChanges, 5000);
   </script>
 </body>
 </html>
