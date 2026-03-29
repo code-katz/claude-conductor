@@ -182,9 +182,42 @@ These commands work from any terminal (not just Claude Code):
 | Command | What it does |
 |---------|-------------|
 | `claude-conductor` | Show all active sessions (default) |
-| `claude-conductor status` | Same as above |
+| `claude-conductor status` | Same as above (alias: `s`) |
+| `claude-conductor start [count]` | Register new session(s) interactively |
+| `claude-conductor update <#> <status>` | Update a session's status (alias: `u`) |
+| `claude-conductor done <#>` | Mark a session complete (alias: `d`) |
+| `claude-conductor merge <#>` | Mark a session as merged (alias: `m`) |
+| `claude-conductor abandon <#> [reason]` | Mark a session as abandoned |
+| `claude-conductor clear` | Archive completed sessions, renumber remaining |
+| `claude-conductor conflicts` | Check for file scope overlaps between sessions |
+| `claude-conductor dashboard` | Generate HTML dashboard (alias: `dash`) |
+| `claude-conductor dashboard --open` | Generate and open dashboard in browser |
 | `claude-conductor init` | Create SESSIONS.md in the current project |
 | `claude-conductor help` | Show full command reference |
+
+### Dashboard
+
+The dashboard generates a self-contained HTML file (`.conductor-dashboard.html`) in your project root. Open it in a browser for a persistent, auto-refreshing view of all sessions with persona icons, status badges, dependency visualization, and conflict warnings.
+
+```bash
+# Generate and open the dashboard
+claude-conductor dashboard --open
+
+# After the first run, the dashboard auto-regenerates on every status change
+claude-conductor update 1 coding   # dashboard updates silently
+```
+
+The dashboard uses a dark theme matching the Code Katz visual system. It loads persona avatars from GitHub and auto-refreshes every 5 seconds.
+
+### Conflict detection
+
+The conductor warns when parallel sessions have overlapping file scopes:
+
+```bash
+claude-conductor conflicts
+```
+
+Conflict warnings also appear in `claude-conductor status` and on the dashboard. The check compares file paths from the Files column in SESSIONS.md; it flags exact matches and parent/child directory relationships (e.g., `src/api/` overlaps with `src/api/routes.py`).
 
 ### Slash commands (Claude Code only)
 
@@ -221,10 +254,12 @@ These commands work from any terminal (not just Claude Code):
 | File | Location | Purpose |
 |------|----------|---------|
 | `SESSIONS.md` | Project root (e.g., `~/my-project/SESSIONS.md`) | Session state for this project |
+| `.conductor-dashboard.html` | Project root (gitignored) | Auto-generated HTML dashboard |
 | `SKILL.md` | `~/.claude/skills/conductor/SKILL.md` | Claude Code skill definition |
 | `conductor.md` | `~/.claude/commands/conductor.md` | Slash command |
 | `sessions.md` | `~/.claude/commands/sessions.md` | Alias slash command |
 | `claude-conductor` | `~/.local/bin/claude-conductor` | CLI (symlinked to repo) |
+| `generate-dashboard` | `~/.local/bin/generate-dashboard` or repo `bin/` | Dashboard HTML generator |
 
 ---
 
@@ -262,10 +297,11 @@ The conductor only knows about sessions that were registered via `/conductor sta
 
 ```bash
 cd ~/d20m-development/code-katz/claude-conductor
-bash tests/run.sh
+bash tests/run.sh       # 89 tests: CLI commands, conflict detection
+bash tests/dashboard.sh # 18 tests: HTML dashboard generation
 ```
 
-Expected output: 16 tests, all passing. The tests create a temporary git repo, test CLI commands, and verify SESSIONS.md parsing.
+Expected output: 107 tests total, all passing. Tests create temporary git repos, test CLI commands, verify SESSIONS.md parsing, conflict detection, and dashboard HTML generation.
 
 ---
 
