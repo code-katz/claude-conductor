@@ -285,9 +285,10 @@ if (( completed_count > 0 )); then
   completed_html+="</tbody></table>"
 fi
 
-# --- Timestamp ---
+# --- Timestamp and version ---
 
 now_ts=$(date "+%Y-%m-%d %H:%M:%S")
+version_hash=$(date "+%s")
 
 # --- Write HTML ---
 
@@ -298,6 +299,7 @@ cat > "$dashboard_file" << HTMLEOF
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta http-equiv="refresh" content="5">
+  <meta name="conductor-version" content="${version_hash}">
   <title>${project_name} — Session Dashboard</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -678,19 +680,9 @@ cat >> "$dashboard_file" << 'HTMLEOF'
     if (meta) meta.remove();
 
     // Smooth content swap via hidden iframe
-    // Loads the same file in a hidden iframe, extracts session card data,
-    // and swaps only when actual session content changes.
-    function getSessionFingerprint(doc) {
-      // Extract just the session data, ignoring timestamps and whitespace
-      var cards = doc.querySelectorAll('.session-card');
-      var plan = doc.querySelector('.plan-card');
-      var parts = [];
-      if (plan) parts.push(plan.innerHTML.replace(/\s+/g, ' ').trim());
-      cards.forEach(function(c) { parts.push(c.innerHTML.replace(/\s+/g, ' ').trim()); });
-      return parts.join('|');
-    }
-
-    var lastFingerprint = getSessionFingerprint(document);
+    // Only swaps when the conductor-version meta tag changes
+    // (set by the CLI when it regenerates the HTML file)
+    var currentVersion = document.querySelector('meta[name="conductor-version"]').content;
 
     function pollForChanges() {
       var iframe = document.getElementById('poll-frame');
@@ -698,24 +690,30 @@ cat >> "$dashboard_file" << 'HTMLEOF'
         try {
           var iframeDoc = iframe.contentDocument;
           if (!iframeDoc) return;
-          var newFingerprint = getSessionFingerprint(iframeDoc);
-          if (newFingerprint !== lastFingerprint) {
-            lastFingerprint = newFingerprint;
+          var versionMeta = iframeDoc.querySelector('meta[name="conductor-version"]');
+          if (versionMeta && versionMeta.content !== currentVersion) {
+            currentVersion = versionMeta.content;
             var newMain = iframeDoc.querySelector('main');
             if (newMain) {
               var main = document.querySelector('main');
               main.style.opacity = '0';
               setTimeout(function() {
                 main.innerHTML = newMain.innerHTML;
+                // Update header timestamp too
+                var newHeader = iframeDoc.querySelector('.last-updated');
+                var header = document.querySelector('.last-updated');
+                if (newHeader && header) header.textContent = newHeader.textContent;
+                var newCount = iframeDoc.querySelector('.session-count');
+                var count = document.querySelector('.session-count');
+                if (newCount && count) count.textContent = newCount.textContent;
                 updateElapsed();
                 main.style.opacity = '1';
               }, 150);
             }
           }
         } catch(e) {
-          // Cross-origin or load error; ignore silently
+          // Cross-origin or load error; ignore
         }
-        // Clear iframe src to free memory
         iframe.removeAttribute('src');
       };
       iframe.src = location.href + '?' + Date.now();
