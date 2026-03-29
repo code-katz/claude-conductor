@@ -266,6 +266,28 @@ if [[ -n "$plan_items" ]]; then
     </div>"
 fi
 
+# --- Generate conflict warnings HTML ---
+
+conflict_html=""
+# Source the CLI to get detect_conflicts() and paths_overlap()
+REAL_SCRIPT="$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || readlink "${BASH_SOURCE[0]}" 2>/dev/null || echo "${BASH_SOURCE[0]}")"
+CLI_PATH="$(cd "$(dirname "$REAL_SCRIPT")" && pwd)/claude-conductor"
+if [[ -f "$CLI_PATH" ]]; then
+  source "$CLI_PATH"
+  conflicts=$(detect_conflicts "$sf" 2>/dev/null) || true
+  if [[ -n "$conflicts" ]]; then
+    conflict_items=""
+    while IFS='|' read -r num_a persona_a num_b persona_b path; do
+      conflict_items+="<div>&#x26A0; Sessions #${num_a} (${persona_a}) and #${num_b} (${persona_b}) both touch $(html_escape "$path")</div>"
+    done <<< "$conflicts"
+    conflict_html="
+    <div class=\"conflict-banner\">
+      <div class=\"conflict-title\">File Overlap Warnings</div>
+      ${conflict_items}
+    </div>"
+  fi
+fi
+
 # --- Generate completed sessions HTML ---
 
 completed_html=""
@@ -299,6 +321,12 @@ main_content=""
 # Plan card (Session 0)
 if [[ -n "$plan_card_html" ]]; then
   main_content+="    ${plan_card_html}
+"
+fi
+
+# Conflict warnings
+if [[ -n "$conflict_html" ]]; then
+  main_content+="    ${conflict_html}
 "
 fi
 
