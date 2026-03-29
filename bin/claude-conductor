@@ -464,6 +464,7 @@ cmd_start() {
     echo "  $(green "✓") Session #${num} registered ($(status_icon planning) planning)"
   done
 
+  maybe_regenerate_dashboard "$sf"
   echo ""
 }
 
@@ -498,6 +499,7 @@ cmd_update() {
   echo ""
   echo "$(green "✓") Session #${num} updated to $(status_icon "$new_status") ${new_status}"
   check_dependents "$sf" "$num" "$new_status"
+  maybe_regenerate_dashboard "$sf"
   echo ""
 }
 
@@ -523,6 +525,7 @@ cmd_done() {
   echo ""
   echo "$(green "✓") Session #${num} marked $(status_icon done) done"
   check_dependents "$sf" "$num" "done"
+  maybe_regenerate_dashboard "$sf"
   echo ""
 }
 
@@ -547,6 +550,7 @@ cmd_merge() {
 
   echo ""
   echo "$(green "✓") Session #${num} marked $(status_icon merged) merged"
+  maybe_regenerate_dashboard "$sf"
   echo ""
 }
 
@@ -578,6 +582,7 @@ cmd_abandon() {
   echo ""
   echo "$(green "✓") Session #${num} marked $(status_icon abandoned) abandoned${reason:+ — $reason}"
   check_dependents "$sf" "$num" "abandoned"
+  maybe_regenerate_dashboard "$sf"
   echo ""
 }
 
@@ -718,6 +723,7 @@ cmd_clear() {
   if [[ ${#to_keep[@]} -gt 0 ]]; then
     echo "  ${#to_keep[@]} session(s) remain active (renumbered)."
   fi
+  maybe_regenerate_dashboard "$sf"
   echo ""
 }
 
@@ -742,6 +748,49 @@ cmd_conflicts() {
   echo ""
 }
 
+# Generate HTML dashboard (delegates to bin/generate-dashboard)
+cmd_dashboard() {
+  local sf
+  sf="$(check_sessions)"
+
+  local script_dir
+  script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  local gen="$script_dir/generate-dashboard"
+
+  if [[ ! -x "$gen" ]]; then
+    echo "$(red "Error:") generate-dashboard not found at $gen"
+    exit 1
+  fi
+
+  local dashboard_path
+  dashboard_path=$("$gen" "$sf")
+
+  echo ""
+  echo "$(green "✓") Dashboard generated: $(dim "$dashboard_path")"
+
+  if [[ "${1:-}" == "--open" ]]; then
+    if command -v open >/dev/null 2>&1; then
+      open "$dashboard_path"
+    elif command -v xdg-open >/dev/null 2>&1; then
+      xdg-open "$dashboard_path"
+    fi
+    echo "  Opened in default browser."
+  fi
+  echo ""
+}
+
+# Regenerate dashboard if it already exists (opt-in guard)
+maybe_regenerate_dashboard() {
+  local sf="$1"
+  local dashboard_dir
+  dashboard_dir="$(dirname "$sf")"
+  if [[ -f "$dashboard_dir/.conductor-dashboard.html" ]]; then
+    local script_dir
+    script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    "$script_dir/generate-dashboard" "$sf" >/dev/null 2>&1 || true
+  fi
+}
+
 # Help
 cmd_help() {
   echo ""
@@ -758,6 +807,8 @@ cmd_help() {
   echo "  merge <#>           Mark a session as merged"
   echo "  abandon <#> [reason] Mark a session as abandoned"
   echo "  clear               Archive completed sessions"
+  echo "  conflicts           Check for file scope overlaps between sessions"
+  echo "  dashboard           Generate HTML dashboard (--open to view)"
   echo "  init                Create SESSIONS.md in the current project"
   echo "  help                Show this help message"
   echo ""
@@ -766,6 +817,7 @@ cmd_help() {
   echo "  u                   update"
   echo "  d                   done"
   echo "  m                   merge"
+  echo "  dash                dashboard"
   echo ""
   echo "$(bold "Statuses:")"
   echo "  📋 planning    Session in plan mode"
@@ -793,6 +845,7 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     abandon)        cmd_abandon "$@" ;;
     clear)          cmd_clear "$@" ;;
     conflicts)      cmd_conflicts "$@" ;;
+    dashboard|dash) cmd_dashboard "$@" ;;
     help|--help|-h) cmd_help ;;
     *)
       echo "$(red "Unknown command:") $cmd"

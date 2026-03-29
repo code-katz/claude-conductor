@@ -1,0 +1,490 @@
+#!/usr/bin/env bash
+# generate-dashboard — Static HTML dashboard generator for claude-conductor
+# Reads SESSIONS.md and writes a self-contained .conductor-dashboard.html
+#
+# Usage: generate-dashboard [path/to/SESSIONS.md]
+#   If no path given, walks up from cwd to find git root + SESSIONS.md
+
+set -euo pipefail
+
+SESSIONS_FILE="SESSIONS.md"
+DASHBOARD_FILE=".conductor-dashboard.html"
+
+# --- Locate SESSIONS.md ---
+
+find_sessions_file() {
+  local dir="$PWD"
+  while [[ "$dir" != "/" ]]; do
+    if [[ -d "$dir/.git" ]]; then
+      echo "$dir/$SESSIONS_FILE"
+      return 0
+    fi
+    dir="$(dirname "$dir")"
+  done
+  echo "$PWD/$SESSIONS_FILE"
+}
+
+sf="${1:-}"
+if [[ -z "$sf" ]]; then
+  sf="$(find_sessions_file)"
+fi
+
+if [[ ! -f "$sf" ]]; then
+  echo "Error: SESSIONS.md not found at $sf" >&2
+  exit 1
+fi
+
+dashboard_dir="$(dirname "$sf")"
+dashboard_file="$dashboard_dir/$DASHBOARD_FILE"
+
+# --- Parse SESSIONS.md ---
+
+# Project name from first heading
+project_name=$(grep -m1 '^# ' "$sf" | sed 's/^# //' | sed 's/ — .*//')
+
+# Parse Active Sessions table into arrays
+active_count=0
+declare -a a_num=() a_persona=() a_task=() a_files=() a_status=() a_started=() a_depends=() a_notes=()
+
+while IFS= read -r line; do
+  if [[ "$line" == "|"* && "$line" != *"---"* && "$line" != *"Persona"* ]]; then
+    num=$(echo "$line" | awk -F'|' '{gsub(/^ +| +$/, "", $2); print $2}')
+    if [[ -n "$num" && "$num" != " " ]]; then
+      a_num+=("$num")
+      a_persona+=("$(echo "$line" | awk -F'|' '{gsub(/^ +| +$/, "", $3); print $3}')")
+      a_task+=("$(echo "$line" | awk -F'|' '{gsub(/^ +| +$/, "", $4); print $4}')")
+      a_files+=("$(echo "$line" | awk -F'|' '{gsub(/^ +| +$/, "", $5); print $5}')")
+      a_status+=("$(echo "$line" | awk -F'|' '{gsub(/^ +| +$/, "", $6); print $6}')")
+      a_started+=("$(echo "$line" | awk -F'|' '{gsub(/^ +| +$/, "", $7); print $7}')")
+      a_depends+=("$(echo "$line" | awk -F'|' '{gsub(/^ +| +$/, "", $8); print $8}')")
+      a_notes+=("$(echo "$line" | awk -F'|' '{gsub(/^ +| +$/, "", $9); print $9}')")
+      active_count=$((active_count + 1))
+    fi
+  fi
+done < <(sed -n '/^## Active Sessions/,/^## [^A]/p' "$sf")
+
+# Parse Completed Sessions table
+completed_count=0
+declare -a c_num=() c_persona=() c_task=() c_files=() c_duration=() c_completed=() c_outcome=()
+
+while IFS= read -r line; do
+  if [[ "$line" == "|"* && "$line" != *"---"* && "$line" != *"Persona"* ]]; then
+    num=$(echo "$line" | awk -F'|' '{gsub(/^ +| +$/, "", $2); print $2}')
+    if [[ -n "$num" && "$num" != " " ]]; then
+      c_num+=("$num")
+      c_persona+=("$(echo "$line" | awk -F'|' '{gsub(/^ +| +$/, "", $3); print $3}')")
+      c_task+=("$(echo "$line" | awk -F'|' '{gsub(/^ +| +$/, "", $4); print $4}')")
+      c_files+=("$(echo "$line" | awk -F'|' '{gsub(/^ +| +$/, "", $5); print $5}')")
+      c_duration+=("$(echo "$line" | awk -F'|' '{gsub(/^ +| +$/, "", $6); print $6}')")
+      c_completed+=("$(echo "$line" | awk -F'|' '{gsub(/^ +| +$/, "", $7); print $7}')")
+      c_outcome+=("$(echo "$line" | awk -F'|' '{gsub(/^ +| +$/, "", $8); print $8}')")
+      completed_count=$((completed_count + 1))
+    fi
+  fi
+done < <(sed -n '/^## Completed Sessions/,/^## [^C]/p' "$sf")
+
+# Parse Merge Order section (freeform lines)
+merge_order=""
+in_merge=0
+while IFS= read -r line; do
+  if [[ "$line" == *"## Merge Order"* ]]; then
+    in_merge=1
+    continue
+  fi
+  if [[ $in_merge -eq 1 && "$line" == "## "* ]]; then
+    break
+  fi
+  if [[ $in_merge -eq 1 && -n "$line" ]]; then
+    merge_order+="$line
+"
+  fi
+done < "$sf"
+
+# --- Status helpers ---
+
+status_color() {
+  case "$1" in
+    planning)  echo "#6a9bcc" ;;
+    coding)    echo "#d4a843" ;;
+    reviewing) echo "#788c5d" ;;
+    blocked)   echo "#c45c4e" ;;
+    done)      echo "#7ab5b0" ;;
+    merged)    echo "#8b7eb8" ;;
+    abandoned) echo "#b0aea5" ;;
+    *)         echo "#b0aea5" ;;
+  esac
+}
+
+status_icon() {
+  case "$1" in
+    planning)  echo "&#x1F4CB;" ;;
+    coding)    echo "&#x26A1;" ;;
+    reviewing) echo "&#x1F50D;" ;;
+    blocked)   echo "&#x1F6AB;" ;;
+    done)      echo "&#x2705;" ;;
+    merged)    echo "&#x1F3C1;" ;;
+    abandoned) echo "&#x274C;" ;;
+    *)         echo "&#x2753;" ;;
+  esac
+}
+
+# --- HTML escape ---
+
+html_escape() {
+  local s="$1"
+  s="${s//&/&amp;}"
+  s="${s//</&lt;}"
+  s="${s//>/&gt;}"
+  s="${s//\"/&quot;}"
+  echo "$s"
+}
+
+# --- Generate session cards HTML ---
+
+session_cards_html=""
+for (( i=0; i<active_count; i++ )); do
+  local_status="${a_status[$i]}"
+  badge_color=$(status_color "$local_status")
+  icon=$(status_icon "$local_status")
+  persona=$(html_escape "${a_persona[$i]}")
+  task=$(html_escape "${a_task[$i]}")
+  files=$(html_escape "${a_files[$i]}")
+  started=$(html_escape "${a_started[$i]}")
+  depends="${a_depends[$i]}"
+  notes="${a_notes[$i]}"
+
+  deps_html=""
+  if [[ -n "$depends" && "$depends" != "—" && "$depends" != "-" ]]; then
+    deps_html="<div class=\"card-field\"><span class=\"field-label\">Depends on:</span> $(html_escape "$depends")</div>"
+  fi
+
+  notes_html=""
+  if [[ -n "$notes" && "$notes" != " " ]]; then
+    notes_html="<div class=\"card-field\"><span class=\"field-label\">Notes:</span> $(html_escape "$notes")</div>"
+  fi
+
+  session_cards_html+="
+    <div class=\"session-card\">
+      <div class=\"card-header\">
+        <span class=\"session-id\">#${a_num[$i]}</span>
+        <span class=\"persona\">${persona}</span>
+        <span class=\"status-badge\" style=\"background:${badge_color}\">${icon} ${local_status}</span>
+      </div>
+      <div class=\"card-body\">
+        <div class=\"card-task\">${task}</div>
+        <div class=\"card-field\"><span class=\"field-label\">Files:</span> <code>${files}</code></div>
+        <div class=\"card-field\"><span class=\"field-label\">Started:</span> ${started}</div>
+        ${deps_html}
+        ${notes_html}
+      </div>
+    </div>"
+done
+
+# --- Generate merge order HTML ---
+
+merge_html=""
+if [[ -n "$merge_order" ]]; then
+  while IFS= read -r line; do
+    if [[ -n "$line" ]]; then
+      merge_html+="<div class=\"merge-item\">$(html_escape "$line")</div>"
+    fi
+  done <<< "$merge_order"
+fi
+
+# --- Generate completed sessions HTML ---
+
+completed_html=""
+if (( completed_count > 0 )); then
+  completed_html+="<table class=\"completed-table\">
+    <thead><tr><th>#</th><th>Persona</th><th>Task</th><th>Files</th><th>Duration</th><th>Completed</th><th>Outcome</th></tr></thead>
+    <tbody>"
+  for (( i=0; i<completed_count; i++ )); do
+    completed_html+="<tr>
+      <td>${c_num[$i]}</td>
+      <td>$(html_escape "${c_persona[$i]}")</td>
+      <td>$(html_escape "${c_task[$i]}")</td>
+      <td><code>$(html_escape "${c_files[$i]}")</code></td>
+      <td>${c_duration[$i]}</td>
+      <td>${c_completed[$i]}</td>
+      <td>${c_outcome[$i]}</td>
+    </tr>"
+  done
+  completed_html+="</tbody></table>"
+fi
+
+# --- Timestamp ---
+
+now_ts=$(date "+%Y-%m-%d %H:%M:%S")
+
+# --- Write HTML ---
+
+cat > "$dashboard_file" << HTMLEOF
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="refresh" content="5">
+  <title>${project_name} — Session Dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Poppins:wght@400;600;700&display=swap" rel="stylesheet">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      background: #141413;
+      color: #faf9f5;
+      font-family: 'Poppins', -apple-system, sans-serif;
+      min-height: 100vh;
+      padding: 0;
+    }
+
+    .header {
+      background: #1a1a19;
+      border-bottom: 2px solid #d4a843;
+      padding: 16px 32px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+
+    .header-left {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .project-name {
+      font-size: 1.4rem;
+      font-weight: 700;
+      color: #d4a843;
+      font-family: 'Poppins', sans-serif;
+    }
+
+    .session-count {
+      background: #2a2a28;
+      color: #faf9f5;
+      padding: 4px 12px;
+      border-radius: 12px;
+      font-size: 0.85rem;
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    .last-updated {
+      color: #b0aea5;
+      font-size: 0.8rem;
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    main { padding: 24px 32px; }
+
+    .section-title {
+      font-size: 1.1rem;
+      font-weight: 600;
+      color: #d4a843;
+      margin-bottom: 16px;
+      font-family: 'Poppins', sans-serif;
+    }
+
+    .card-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+      gap: 16px;
+      margin-bottom: 32px;
+    }
+
+    .session-card {
+      background: #1e1e1d;
+      border: 1px solid #2a2a28;
+      border-radius: 8px;
+      overflow: hidden;
+      transition: border-color 0.2s;
+    }
+
+    .session-card:hover { border-color: #d4a843; }
+
+    .card-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 12px 16px;
+      background: #222221;
+      border-bottom: 1px solid #2a2a28;
+    }
+
+    .session-id {
+      font-family: 'JetBrains Mono', monospace;
+      font-weight: 600;
+      color: #d4a843;
+      font-size: 1rem;
+    }
+
+    .persona {
+      font-weight: 600;
+      font-size: 0.95rem;
+      flex: 1;
+    }
+
+    .status-badge {
+      padding: 3px 10px;
+      border-radius: 10px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: #141413;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+      white-space: nowrap;
+    }
+
+    .card-body { padding: 14px 16px; }
+
+    .card-task {
+      font-size: 0.9rem;
+      margin-bottom: 10px;
+      line-height: 1.4;
+    }
+
+    .card-field {
+      font-size: 0.8rem;
+      color: #b0aea5;
+      margin-bottom: 4px;
+    }
+
+    .field-label {
+      color: #8a8880;
+      font-weight: 600;
+    }
+
+    code {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.78rem;
+      background: #2a2a28;
+      padding: 1px 5px;
+      border-radius: 3px;
+    }
+
+    .merge-section {
+      background: #1e1e1d;
+      border: 1px solid #2a2a28;
+      border-radius: 8px;
+      padding: 16px 20px;
+      margin-bottom: 32px;
+    }
+
+    .merge-item {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.85rem;
+      color: #b0aea5;
+      padding: 4px 0;
+    }
+
+    .completed-section {
+      margin-top: 32px;
+      opacity: 0.7;
+    }
+
+    .completed-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.8rem;
+    }
+
+    .completed-table th {
+      text-align: left;
+      padding: 8px 12px;
+      border-bottom: 1px solid #2a2a28;
+      color: #8a8880;
+      font-weight: 600;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .completed-table td {
+      padding: 6px 12px;
+      border-bottom: 1px solid #1e1e1d;
+      color: #b0aea5;
+    }
+
+    .no-sessions {
+      text-align: center;
+      color: #b0aea5;
+      padding: 48px 0;
+      font-size: 0.95rem;
+    }
+
+    .conflict-banner {
+      background: #3a2520;
+      border: 1px solid #c45c4e;
+      border-radius: 8px;
+      padding: 12px 20px;
+      margin-bottom: 24px;
+      color: #faf9f5;
+      font-size: 0.85rem;
+    }
+
+    .conflict-banner .conflict-title {
+      color: #c45c4e;
+      font-weight: 600;
+      margin-bottom: 6px;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="header-left">
+      <span class="project-name">${project_name}</span>
+      <span class="session-count">${active_count} active session$([ "$active_count" != "1" ] && echo "s")</span>
+    </div>
+    <span class="last-updated">Updated: ${now_ts}</span>
+  </div>
+
+  <main>
+HTMLEOF
+
+# Active sessions section
+if (( active_count > 0 )); then
+  cat >> "$dashboard_file" << HTMLEOF
+    <h2 class="section-title">Active Sessions</h2>
+    <div class="card-grid">
+      ${session_cards_html}
+    </div>
+HTMLEOF
+else
+  cat >> "$dashboard_file" << HTMLEOF
+    <div class="no-sessions">No active sessions. Start one with <code>claude-conductor start</code></div>
+HTMLEOF
+fi
+
+# Merge order section
+if [[ -n "$merge_html" ]]; then
+  cat >> "$dashboard_file" << HTMLEOF
+    <h2 class="section-title">Merge Order</h2>
+    <div class="merge-section">
+      ${merge_html}
+    </div>
+HTMLEOF
+fi
+
+# Completed sessions section
+if (( completed_count > 0 )); then
+  cat >> "$dashboard_file" << HTMLEOF
+    <div class="completed-section">
+      <h2 class="section-title">Completed Sessions</h2>
+      ${completed_html}
+    </div>
+HTMLEOF
+fi
+
+# Close HTML
+cat >> "$dashboard_file" << 'HTMLEOF'
+  </main>
+</body>
+</html>
+HTMLEOF
+
+echo "$dashboard_file"

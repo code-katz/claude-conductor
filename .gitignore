@@ -5,3 +5,6 @@ gtm.md
 
 # Draft blog posts
 publish/posts/
+
+# Generated dashboard
+.conductor-dashboard.html
