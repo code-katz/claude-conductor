@@ -182,6 +182,75 @@ check_dependents() {
   done
 }
 
+# Check if two paths overlap (exact match or prefix/parent relationship)
+paths_overlap() {
+  local a="$1" b="$2"
+  # Normalize: strip trailing slashes
+  a="${a%/}"
+  b="${b%/}"
+  # Exact match
+  [[ "$a" == "$b" ]] && return 0
+  # a is parent of b
+  [[ "$b" == "$a/"* ]] && return 0
+  # b is parent of a
+  [[ "$a" == "$b/"* ]] && return 0
+  return 1
+}
+
+# Detect file scope conflicts between active sessions
+# Outputs pipe-delimited lines: num_a|persona_a|num_b|persona_b|overlapping_path
+detect_conflicts() {
+  local sf="$1"
+  local -a nums=() personas=() files_list=()
+
+  # Parse active sessions (only active statuses)
+  while IFS= read -r line; do
+    if [[ "$line" == "|"* && "$line" != *"---"* && "$line" != *"Persona"* ]]; then
+      local num persona status files_raw
+      num=$(echo "$line" | awk -F'|' '{gsub(/^ +| +$/, "", $2); print $2}')
+      persona=$(echo "$line" | awk -F'|' '{gsub(/^ +| +$/, "", $3); print $3}')
+      status=$(echo "$line" | awk -F'|' '{gsub(/^ +| +$/, "", $6); print $6}')
+      files_raw=$(echo "$line" | awk -F'|' '{gsub(/^ +| +$/, "", $5); print $5}')
+
+      case "$status" in
+        planning|coding|reviewing|blocked)
+          if [[ -n "$num" && "$num" =~ ^[0-9]+$ ]]; then
+            nums+=("$num")
+            personas+=("$persona")
+            files_list+=("$files_raw")
+          fi
+          ;;
+      esac
+    fi
+  done < <(sed -n '/^## Active Sessions/,/^## [^A]/p' "$sf")
+
+  local count=${#nums[@]}
+  if (( count < 2 )); then
+    return 0
+  fi
+
+  # Compare every unique pair
+  local i j
+  for (( i=0; i<count; i++ )); do
+    for (( j=i+1; j<count; j++ )); do
+      local -a files_a=() files_b=()
+      IFS=', ' read -ra files_a <<< "${files_list[$i]}"
+      IFS=', ' read -ra files_b <<< "${files_list[$j]}"
+
+      local fa fb
+      for fa in "${files_a[@]}"; do
+        [[ -z "$fa" ]] && continue
+        for fb in "${files_b[@]}"; do
+          [[ -z "$fb" ]] && continue
+          if paths_overlap "$fa" "$fb"; then
+            echo "${nums[$i]}|${personas[$i]}|${nums[$j]}|${personas[$j]}|$fa"
+          fi
+        done
+      done
+    done
+  done
+}
+
 # Current timestamp
 now_timestamp() { date "+%Y-%m-%d %H:%M"; }
 
@@ -279,6 +348,18 @@ cmd_status() {
       echo "  $line"
     fi
   done < "$sf"
+
+  # Show file overlap warnings
+  local conflicts
+  conflicts=$(detect_conflicts "$sf")
+  if [[ -n "$conflicts" ]]; then
+    echo ""
+    echo "$(bold "File Overlap Warnings")"
+    echo ""
+    while IFS='|' read -r num_a persona_a num_b persona_b path; do
+      echo "  $(yellow "⚠") Sessions #${num_a} (${persona_a}) and #${num_b} (${persona_b}) both touch ${path}"
+    done <<< "$conflicts"
+  fi
 
   echo ""
 }
@@ -640,6 +721,27 @@ cmd_clear() {
   echo ""
 }
 
+# Show file scope conflicts
+cmd_conflicts() {
+  local sf
+  sf="$(check_sessions)"
+
+  local conflicts
+  conflicts=$(detect_conflicts "$sf")
+
+  echo ""
+  if [[ -z "$conflicts" ]]; then
+    echo "$(green "✓") No file scope conflicts detected."
+  else
+    echo "$(bold "File Overlap Warnings")"
+    echo ""
+    while IFS='|' read -r num_a persona_a num_b persona_b path; do
+      echo "  $(yellow "⚠") Sessions #${num_a} (${persona_a}) and #${num_b} (${persona_b}) both touch ${path}"
+    done <<< "$conflicts"
+  fi
+  echo ""
+}
+
 # Help
 cmd_help() {
   echo ""
@@ -676,23 +778,26 @@ cmd_help() {
   echo ""
 }
 
-# Main dispatch
-cmd="${1:-status}"
-shift 2>/dev/null || true
+# Main dispatch (guarded for sourcing)
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+  cmd="${1:-status}"
+  shift 2>/dev/null || true
 
-case "$cmd" in
-  status|s)       cmd_status "$@" ;;
-  init)           cmd_init "$@" ;;
-  start)          cmd_start "$@" ;;
-  update|u)       cmd_update "$@" ;;
-  done|d)         cmd_done "$@" ;;
-  merge|m)        cmd_merge "$@" ;;
-  abandon)        cmd_abandon "$@" ;;
-  clear)          cmd_clear "$@" ;;
-  help|--help|-h) cmd_help ;;
-  *)
-    echo "$(red "Unknown command:") $cmd"
-    echo "Run $(dim "claude-conductor help") for usage."
-    exit 1
-    ;;
-esac
+  case "$cmd" in
+    status|s)       cmd_status "$@" ;;
+    init)           cmd_init "$@" ;;
+    start)          cmd_start "$@" ;;
+    update|u)       cmd_update "$@" ;;
+    done|d)         cmd_done "$@" ;;
+    merge|m)        cmd_merge "$@" ;;
+    abandon)        cmd_abandon "$@" ;;
+    clear)          cmd_clear "$@" ;;
+    conflicts)      cmd_conflicts "$@" ;;
+    help|--help|-h) cmd_help ;;
+    *)
+      echo "$(red "Unknown command:") $cmd"
+      echo "Run $(dim "claude-conductor help") for usage."
+      exit 1
+      ;;
+  esac
+fi

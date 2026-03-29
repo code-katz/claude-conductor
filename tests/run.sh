@@ -1029,6 +1029,314 @@ fi
 
 echo ""
 
+# --- Conflict detection: paths_overlap ---
+echo "$(bold "Conflict detection: paths_overlap")"
+
+# Source the CLI to access helper functions directly
+source "$CLI"
+
+total=$((total + 1))
+if paths_overlap "src/api/" "src/api/"; then
+  echo "  $(green "✓") paths_overlap: exact match"
+  pass=$((pass + 1))
+else
+  echo "  $(red "✗") paths_overlap: exact match should overlap"
+  fail=$((fail + 1))
+fi
+
+total=$((total + 1))
+if paths_overlap "src/" "src/api/routes.py"; then
+  echo "  $(green "✓") paths_overlap: parent/child overlap"
+  pass=$((pass + 1))
+else
+  echo "  $(red "✗") paths_overlap: parent/child should overlap"
+  fail=$((fail + 1))
+fi
+
+total=$((total + 1))
+if paths_overlap "src/api/routes.py" "src/"; then
+  echo "  $(green "✓") paths_overlap: child/parent overlap"
+  pass=$((pass + 1))
+else
+  echo "  $(red "✗") paths_overlap: child/parent should overlap"
+  fail=$((fail + 1))
+fi
+
+total=$((total + 1))
+if paths_overlap "src/api/" "src/ui/"; then
+  echo "  $(red "✗") paths_overlap: distinct paths should not overlap"
+  fail=$((fail + 1))
+else
+  echo "  $(green "✓") paths_overlap: distinct paths do not overlap"
+  pass=$((pass + 1))
+fi
+
+total=$((total + 1))
+if paths_overlap "src/api" "src/api-docs"; then
+  echo "  $(red "✗") paths_overlap: similar prefix should not overlap (src/api vs src/api-docs)"
+  fail=$((fail + 1))
+else
+  echo "  $(green "✓") paths_overlap: similar prefix does not overlap (src/api vs src/api-docs)"
+  pass=$((pass + 1))
+fi
+
+total=$((total + 1))
+if paths_overlap "src/api/" "src/api"; then
+  echo "  $(green "✓") paths_overlap: trailing slash normalization"
+  pass=$((pass + 1))
+else
+  echo "  $(red "✗") paths_overlap: trailing slash normalization should match"
+  fail=$((fail + 1))
+fi
+
+echo ""
+
+# --- Conflict detection: detect_conflicts ---
+echo "$(bold "Conflict detection: detect_conflicts")"
+
+# Two sessions with overlapping files
+cat > SESSIONS.md << 'EOF'
+# TestProject — Session Conductor
+
+---
+
+## Active Sessions
+
+| # | Persona | Task | Files | Status | Started | Depends On | Notes |
+|---|---------|------|-------|--------|---------|------------|-------|
+| 1 | Akira | Build API | src/api/ | coding | 2026-03-28 14:00 | | |
+| 2 | Sasha | Build UI | src/api/, src/ui/ | coding | 2026-03-28 14:05 | | |
+
+## Merge Order
+
+No dependencies defined.
+
+## Completed Sessions
+
+| # | Persona | Task | Files | Duration | Completed | Outcome |
+|---|---------|------|-------|----------|-----------|---------|
+
+## Session Log
+EOF
+
+total=$((total + 1))
+conflicts_out=$(detect_conflicts "SESSIONS.md")
+if [[ -n "$conflicts_out" ]]; then
+  echo "  $(green "✓") detect_conflicts: overlapping files detected"
+  pass=$((pass + 1))
+else
+  echo "  $(red "✗") detect_conflicts: should detect overlapping files"
+  fail=$((fail + 1))
+fi
+
+# Two sessions with distinct files
+cat > SESSIONS.md << 'EOF'
+# TestProject — Session Conductor
+
+---
+
+## Active Sessions
+
+| # | Persona | Task | Files | Status | Started | Depends On | Notes |
+|---|---------|------|-------|--------|---------|------------|-------|
+| 1 | Akira | Build API | src/api/ | coding | 2026-03-28 14:00 | | |
+| 2 | Sasha | Build UI | src/ui/ | coding | 2026-03-28 14:05 | | |
+
+## Merge Order
+
+No dependencies defined.
+
+## Completed Sessions
+
+| # | Persona | Task | Files | Duration | Completed | Outcome |
+|---|---------|------|-------|----------|-----------|---------|
+
+## Session Log
+EOF
+
+total=$((total + 1))
+conflicts_out=$(detect_conflicts "SESSIONS.md")
+if [[ -z "$conflicts_out" ]]; then
+  echo "  $(green "✓") detect_conflicts: no overlap for distinct files"
+  pass=$((pass + 1))
+else
+  echo "  $(red "✗") detect_conflicts: should not detect overlap for distinct files"
+  fail=$((fail + 1))
+fi
+
+# Three sessions, only one pair overlaps
+cat > SESSIONS.md << 'EOF'
+# TestProject — Session Conductor
+
+---
+
+## Active Sessions
+
+| # | Persona | Task | Files | Status | Started | Depends On | Notes |
+|---|---------|------|-------|--------|---------|------------|-------|
+| 1 | Akira | Build API | src/api/ | coding | 2026-03-28 14:00 | | |
+| 2 | Sasha | Build UI | src/ui/ | coding | 2026-03-28 14:05 | | |
+| 3 | Robin | Write tests | src/api/tests/ | coding | 2026-03-28 14:10 | | |
+
+## Merge Order
+
+No dependencies defined.
+
+## Completed Sessions
+
+| # | Persona | Task | Files | Duration | Completed | Outcome |
+|---|---------|------|-------|----------|-----------|---------|
+
+## Session Log
+EOF
+
+total=$((total + 1))
+conflicts_out=$(detect_conflicts "SESSIONS.md")
+conflict_count=$(echo "$conflicts_out" | grep -c '|' || true)
+if [[ "$conflict_count" -eq 1 ]]; then
+  echo "  $(green "✓") detect_conflicts: only one pair overlaps out of three sessions"
+  pass=$((pass + 1))
+else
+  echo "  $(red "✗") detect_conflicts: expected 1 overlap pair, got $conflict_count"
+  fail=$((fail + 1))
+fi
+
+# Single session (no pairs to compare)
+cat > SESSIONS.md << 'EOF'
+# TestProject — Session Conductor
+
+---
+
+## Active Sessions
+
+| # | Persona | Task | Files | Status | Started | Depends On | Notes |
+|---|---------|------|-------|--------|---------|------------|-------|
+| 1 | Akira | Build API | src/api/ | coding | 2026-03-28 14:00 | | |
+
+## Merge Order
+
+No dependencies defined.
+
+## Completed Sessions
+
+| # | Persona | Task | Files | Duration | Completed | Outcome |
+|---|---------|------|-------|----------|-----------|---------|
+
+## Session Log
+EOF
+
+total=$((total + 1))
+conflicts_out=$(detect_conflicts "SESSIONS.md")
+if [[ -z "$conflicts_out" ]]; then
+  echo "  $(green "✓") detect_conflicts: single session produces no conflicts"
+  pass=$((pass + 1))
+else
+  echo "  $(red "✗") detect_conflicts: single session should produce no conflicts"
+  fail=$((fail + 1))
+fi
+
+# Completed/abandoned sessions excluded
+cat > SESSIONS.md << 'EOF'
+# TestProject — Session Conductor
+
+---
+
+## Active Sessions
+
+| # | Persona | Task | Files | Status | Started | Depends On | Notes |
+|---|---------|------|-------|--------|---------|------------|-------|
+| 1 | Akira | Build API | src/api/ | done | 2026-03-28 14:00 | | |
+| 2 | Robin | Write tests | src/api/ | abandoned | 2026-03-28 14:05 | | |
+| 3 | Sasha | Build UI | src/api/ | coding | 2026-03-28 14:10 | | |
+
+## Merge Order
+
+No dependencies defined.
+
+## Completed Sessions
+
+| # | Persona | Task | Files | Duration | Completed | Outcome |
+|---|---------|------|-------|----------|-----------|---------|
+
+## Session Log
+EOF
+
+total=$((total + 1))
+conflicts_out=$(detect_conflicts "SESSIONS.md")
+if [[ -z "$conflicts_out" ]]; then
+  echo "  $(green "✓") detect_conflicts: done/abandoned sessions excluded"
+  pass=$((pass + 1))
+else
+  echo "  $(red "✗") detect_conflicts: done/abandoned sessions should be excluded"
+  fail=$((fail + 1))
+fi
+
+echo ""
+
+# --- Conflict detection: commands ---
+echo "$(bold "Conflict detection: commands")"
+
+# cmd_conflicts with no conflicts
+cat > SESSIONS.md << 'EOF'
+# TestProject — Session Conductor
+
+---
+
+## Active Sessions
+
+| # | Persona | Task | Files | Status | Started | Depends On | Notes |
+|---|---------|------|-------|--------|---------|------------|-------|
+| 1 | Akira | Build API | src/api/ | coding | 2026-03-28 14:00 | | |
+| 2 | Sasha | Build UI | src/ui/ | coding | 2026-03-28 14:05 | | |
+
+## Merge Order
+
+No dependencies defined.
+
+## Completed Sessions
+
+| # | Persona | Task | Files | Duration | Completed | Outcome |
+|---|---------|------|-------|----------|-----------|---------|
+
+## Session Log
+EOF
+
+assert_exit "conflicts command exits 0 with no conflicts" 0 "$CLI" conflicts
+assert_output_contains "conflicts command shows clean message" "No file scope conflicts" "$CLI" conflicts
+
+# cmd_conflicts with overlapping files
+cat > SESSIONS.md << 'EOF'
+# TestProject — Session Conductor
+
+---
+
+## Active Sessions
+
+| # | Persona | Task | Files | Status | Started | Depends On | Notes |
+|---|---------|------|-------|--------|---------|------------|-------|
+| 1 | Akira | Build API | src/api/ | coding | 2026-03-28 14:00 | | |
+| 2 | Robin | Write tests | src/api/tests/ | coding | 2026-03-28 14:05 | | |
+
+## Merge Order
+
+No dependencies defined.
+
+## Completed Sessions
+
+| # | Persona | Task | Files | Duration | Completed | Outcome |
+|---|---------|------|-------|----------|-----------|---------|
+
+## Session Log
+EOF
+
+assert_exit "conflicts command exits 0 even with conflicts" 0 "$CLI" conflicts
+assert_output_contains "conflicts command shows warning" "both touch" "$CLI" conflicts
+
+# status command shows File Overlap Warnings
+assert_output_contains "status shows File Overlap Warnings section" "File Overlap Warnings" "$CLI" status
+
+echo ""
+
 # --- Results ---
 echo "────────────────────────────────────"
 if [[ $fail -eq 0 ]]; then
