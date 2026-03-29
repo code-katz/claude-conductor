@@ -678,32 +678,45 @@ cat >> "$dashboard_file" << 'HTMLEOF'
     if (meta) meta.remove();
 
     // Smooth content swap via hidden iframe
-    // Loads the same file in a hidden iframe, extracts <main> content,
-    // and swaps it into the visible page without a full reload.
-    var lastContent = document.querySelector('main').innerHTML;
+    // Loads the same file in a hidden iframe, extracts session card data,
+    // and swaps only when actual session content changes.
+    function getSessionFingerprint(doc) {
+      // Extract just the session data, ignoring timestamps and whitespace
+      var cards = doc.querySelectorAll('.session-card');
+      var plan = doc.querySelector('.plan-card');
+      var parts = [];
+      if (plan) parts.push(plan.innerHTML.replace(/\s+/g, ' ').trim());
+      cards.forEach(function(c) { parts.push(c.innerHTML.replace(/\s+/g, ' ').trim()); });
+      return parts.join('|');
+    }
+
+    var lastFingerprint = getSessionFingerprint(document);
 
     function pollForChanges() {
       var iframe = document.getElementById('poll-frame');
       iframe.onload = function() {
         try {
-          var newMain = iframe.contentDocument.querySelector('main');
-          if (newMain) {
-            var newContent = newMain.innerHTML;
-            if (newContent !== lastContent) {
-              lastContent = newContent;
+          var iframeDoc = iframe.contentDocument;
+          if (!iframeDoc) return;
+          var newFingerprint = getSessionFingerprint(iframeDoc);
+          if (newFingerprint !== lastFingerprint) {
+            lastFingerprint = newFingerprint;
+            var newMain = iframeDoc.querySelector('main');
+            if (newMain) {
               var main = document.querySelector('main');
               main.style.opacity = '0';
               setTimeout(function() {
-                main.innerHTML = newContent;
+                main.innerHTML = newMain.innerHTML;
                 updateElapsed();
                 main.style.opacity = '1';
               }, 150);
             }
           }
         } catch(e) {
-          // Cross-origin or load error; fall back to full reload
-          location.reload();
+          // Cross-origin or load error; ignore silently
         }
+        // Clear iframe src to free memory
+        iframe.removeAttribute('src');
       };
       iframe.src = location.href + '?' + Date.now();
     }
