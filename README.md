@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="publish/images/Conductor_dark_banner.png" alt="claude-conductor" width="100%">
+  <img src="publish/images/claude-conductor-header.svg" alt="claude-conductor" width="100%">
 </p>
 
 # claude-conductor
