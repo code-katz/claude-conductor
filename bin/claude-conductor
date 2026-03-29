@@ -1,0 +1,244 @@
+#!/usr/bin/env bash
+# claude-conductor — CLI for managing parallel Claude Code sessions
+# Usage: claude-conductor <command> [args]
+#
+# Commands:
+#   status              Show all active sessions (default if no command given)
+#   start               Register a new session interactively
+#   update <#> <status> Update a session's status
+#   done <#>            Mark a session complete
+#   merge <#>           Mark a session as merged
+#   abandon <#>         Mark a session as abandoned
+#   clear               Archive completed sessions
+#   help                Show this help message
+
+set -euo pipefail
+
+SESSIONS_FILE="SESSIONS.md"
+
+bold()  { printf '\033[1m%s\033[0m' "$*"; }
+green() { printf '\033[32m%s\033[0m' "$*"; }
+yellow(){ printf '\033[33m%s\033[0m' "$*"; }
+red()   { printf '\033[31m%s\033[0m' "$*"; }
+dim()   { printf '\033[2m%s\033[0m' "$*"; }
+cyan()  { printf '\033[36m%s\033[0m' "$*"; }
+
+# Status icons
+status_icon() {
+  case "$1" in
+    planning)  echo "📋" ;;
+    coding)    echo "⚡" ;;
+    reviewing) echo "🔍" ;;
+    blocked)   echo "🚫" ;;
+    done)      echo "✅" ;;
+    merged)    echo "🏁" ;;
+    abandoned) echo "❌" ;;
+    *)         echo "❓" ;;
+  esac
+}
+
+# Find SESSIONS.md by walking up from cwd to find a git root
+find_sessions_file() {
+  local dir="$PWD"
+  while [[ "$dir" != "/" ]]; do
+    if [[ -d "$dir/.git" ]]; then
+      echo "$dir/$SESSIONS_FILE"
+      return 0
+    fi
+    dir="$(dirname "$dir")"
+  done
+  # Fallback to cwd
+  echo "$PWD/$SESSIONS_FILE"
+}
+
+# Check if SESSIONS.md exists
+check_sessions() {
+  local sf
+  sf="$(find_sessions_file)"
+  if [[ ! -f "$sf" ]]; then
+    echo ""
+    echo "$(yellow "!") No SESSIONS.md found."
+    echo ""
+    echo "  Create one with: $(dim "claude-conductor init")"
+    echo "  Or use $(dim "/conductor start") in Claude Code to register sessions."
+    echo ""
+    exit 1
+  fi
+  echo "$sf"
+}
+
+# Show status
+cmd_status() {
+  local sf
+  sf="$(check_sessions)"
+
+  echo ""
+  echo "$(bold "Session Conductor")"
+  echo "────────────────────────────────────"
+  echo ""
+
+  # Parse active sessions from the table
+  local in_active=0
+  local count=0
+  while IFS= read -r line; do
+    # Detect the Active Sessions table
+    if [[ "$line" == *"## Active Sessions"* ]]; then
+      in_active=1
+      continue
+    fi
+    # Stop at the next section
+    if [[ $in_active -eq 1 && "$line" == "## "* && "$line" != *"Active Sessions"* ]]; then
+      break
+    fi
+    # Skip header rows
+    if [[ $in_active -eq 1 && "$line" == "|"* && "$line" != *"---"* && "$line" != *"Persona"* ]]; then
+      # Parse table row: | # | Persona | Task | Files | Status | Started | Depends On | Notes |
+      local num persona task status depends
+      num=$(echo "$line" | awk -F'|' '{gsub(/^ +| +$/, "", $2); print $2}')
+      persona=$(echo "$line" | awk -F'|' '{gsub(/^ +| +$/, "", $3); print $3}')
+      task=$(echo "$line" | awk -F'|' '{gsub(/^ +| +$/, "", $4); print $4}')
+      status=$(echo "$line" | awk -F'|' '{gsub(/^ +| +$/, "", $6); print $6}')
+      depends=$(echo "$line" | awk -F'|' '{gsub(/^ +| +$/, "", $8); print $8}')
+
+      if [[ -n "$num" && "$num" != " " ]]; then
+        local icon
+        icon=$(status_icon "$status")
+        printf "  #%-2s %s %-10s — %-40s [%s]" "$num" "$icon" "$persona" "$task" "$status"
+        if [[ -n "$depends" && "$depends" != "—" && "$depends" != "-" ]]; then
+          printf " → waiting on %s" "$depends"
+        fi
+        echo ""
+        count=$((count + 1))
+      fi
+    fi
+  done < "$sf"
+
+  if [[ $count -eq 0 ]]; then
+    echo "  $(dim "No active sessions.")"
+    echo ""
+    echo "  Start sessions with: $(dim "/conductor start") or $(dim "/conductor plan")"
+  fi
+
+  echo ""
+
+  # Show merge order section
+  local in_merge=0
+  while IFS= read -r line; do
+    if [[ "$line" == *"## Merge Order"* ]]; then
+      in_merge=1
+      echo "$(bold "Merge Order:")"
+      continue
+    fi
+    if [[ $in_merge -eq 1 && "$line" == "## "* ]]; then
+      break
+    fi
+    if [[ $in_merge -eq 1 && -n "$line" ]]; then
+      echo "  $line"
+    fi
+  done < "$sf"
+
+  echo ""
+}
+
+# Initialize SESSIONS.md
+cmd_init() {
+  local sf
+  sf="$(find_sessions_file)"
+
+  if [[ -f "$sf" ]]; then
+    echo "$(yellow "!") SESSIONS.md already exists at $(dim "$sf")"
+    echo "  Use $(dim "/conductor start") to add sessions."
+    exit 0
+  fi
+
+  # Try to get project name from git remote or directory name
+  local project_name
+  project_name=$(basename "$(git rev-parse --show-toplevel 2>/dev/null || echo "$PWD")")
+
+  printf "Project name [%s]: " "$project_name"
+  read -r input_name
+  project_name="${input_name:-$project_name}"
+
+  cat > "$sf" << EOF
+# ${project_name} — Session Conductor
+
+Active coordination view for parallel Claude Code sessions.
+Auto-maintained via [claude-conductor](https://github.com/code-katz/claude-conductor).
+
+---
+
+## Active Sessions
+
+| # | Persona | Task | Files | Status | Started | Depends On | Notes |
+|---|---------|------|-------|--------|---------|------------|-------|
+
+## Merge Order
+
+No dependencies defined.
+
+## Completed Sessions
+
+| # | Persona | Task | Files | Duration | Completed | Outcome |
+|---|---------|------|-------|----------|-----------|---------|
+
+## Session Log
+EOF
+
+  echo ""
+  echo "$(green "✓") Created SESSIONS.md for $(bold "$project_name")"
+  echo "  $(dim "$sf")"
+  echo ""
+  echo "  Next: use $(dim "/conductor start") in Claude Code to register sessions."
+  echo ""
+}
+
+# Help
+cmd_help() {
+  echo ""
+  echo "$(bold "claude-conductor") — Coordinate parallel Claude Code sessions"
+  echo ""
+  echo "$(bold "Usage:")"
+  echo "  claude-conductor [command] [args]"
+  echo ""
+  echo "$(bold "Commands:")"
+  echo "  status              Show all active sessions $(dim "(default)")"
+  echo "  init                Create SESSIONS.md in the current project"
+  echo "  help                Show this help message"
+  echo ""
+  echo "$(bold "In-session commands") $(dim "(use these in Claude Code)"):"
+  echo "  /conductor          Show session status"
+  echo "  /conductor start    Register sessions from /parallel output"
+  echo "  /conductor update   Update a session's status"
+  echo "  /conductor done     Mark a session complete"
+  echo "  /conductor merge    Mark a session as merged"
+  echo "  /conductor abandon  Mark a session as abandoned"
+  echo "  /conductor plan     Generate /parallel plan and auto-register"
+  echo "  /conductor clear    Archive completed sessions"
+  echo ""
+  echo "  /sessions           Alias for /conductor"
+  echo ""
+  echo "$(bold "Statuses:")"
+  echo "  📋 planning    Session in plan mode"
+  echo "  ⚡ coding      Actively writing code"
+  echo "  🔍 reviewing   Code complete, reviewing"
+  echo "  🚫 blocked     Waiting on dependency"
+  echo "  ✅ done        Task complete, ready to merge"
+  echo "  🏁 merged      Code merged"
+  echo "  ❌ abandoned   Session stopped"
+  echo ""
+}
+
+# Main dispatch
+cmd="${1:-status}"
+shift 2>/dev/null || true
+
+case "$cmd" in
+  status|s)     cmd_status "$@" ;;
+  init)         cmd_init "$@" ;;
+  help|--help|-h) cmd_help ;;
+  *)
+    echo "$(red "Unknown command:") $cmd"
+    echo "Run $(dim "claude-conductor help") for usage."
+    exit 1
+    ;;
+esac

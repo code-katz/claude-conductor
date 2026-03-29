@@ -1,0 +1,7 @@
+.DS_Store
+*.swp
+*.swo
+gtm.md
+
+# Draft blog posts
+publish/posts/
