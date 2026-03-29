@@ -298,7 +298,6 @@ cat > "$dashboard_file" << HTMLEOF
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="refresh" content="5">
   <meta name="conductor-version" content="${version_hash}">
   <title>${project_name} — Session Dashboard</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -674,10 +673,6 @@ cat >> "$dashboard_file" << 'HTMLEOF'
 
     updateElapsed();
     setInterval(updateElapsed, 60000);
-
-    // Remove meta refresh so page never hard-reloads
-    var meta = document.querySelector('meta[http-equiv="refresh"]');
-    if (meta) meta.remove();
 
     // Smooth content swap via hidden iframe
     // Only swaps when the conductor-version meta tag changes

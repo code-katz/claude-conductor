@@ -161,7 +161,7 @@ assert_file_contains "contains project name" ".conductor-dashboard.html" "MyProj
 assert_file_contains "contains session persona (Akira)" ".conductor-dashboard.html" "Akira"
 assert_file_contains "contains session task text" ".conductor-dashboard.html" "Build API endpoints"
 assert_file_contains "contains status text (coding)" ".conductor-dashboard.html" "coding"
-assert_file_contains "contains meta refresh tag" ".conductor-dashboard.html" 'meta http-equiv="refresh" content="5"'
+assert_file_contains "contains conductor-version meta tag" ".conductor-dashboard.html" 'conductor-version'
 assert_file_contains "contains dark theme background" ".conductor-dashboard.html" "#141413"
 assert_file_contains "contains Google Fonts link" ".conductor-dashboard.html" "fonts.googleapis.com"
 
@@ -274,7 +274,7 @@ echo ""
 echo "$(bold "Fade-in refresh")"
 
 assert_file_contains "HTML contains fadeIn animation" ".conductor-dashboard.html" "fadeIn"
-assert_file_contains "meta refresh still present as fallback" ".conductor-dashboard.html" "http-equiv"
+assert_file_contains "iframe polling present for live updates" ".conductor-dashboard.html" "poll-frame"
 
 echo ""
 
