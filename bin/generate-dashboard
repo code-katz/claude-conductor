@@ -380,14 +380,17 @@ if [[ "$active_count" != "1" ]]; then
   active_label="sessions"
 fi
 
-# Substitute placeholders
+# Substitute simple placeholders (no special chars)
 template="${template//\{\{VERSION_HASH\}\}/$version_hash}"
 template="${template//\{\{PROJECT_NAME\}\}/$project_name}"
 template="${template//\{\{ACTIVE_COUNT\}\}/$active_count}"
 template="${template//\{\{ACTIVE_SESSIONS_LABEL\}\}/$active_label}"
 template="${template//\{\{NOW_TS\}\}/$now_ts}"
-template="${template//\{\{MAIN_CONTENT\}\}/$main_content}"
 
-printf '%s\n' "$template" > "$dashboard_file"
+# Split template at {{MAIN_CONTENT}} and concatenate with content
+# (avoids bash substitution mangling HTML entities like &#x1F4CB;)
+before_main="${template%%\{\{MAIN_CONTENT\}\}*}"
+after_main="${template#*\{\{MAIN_CONTENT\}\}}"
+printf '%s%s%s\n' "$before_main" "$main_content" "$after_main" > "$dashboard_file"
 
 echo "$dashboard_file"
