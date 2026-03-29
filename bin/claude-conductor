@@ -587,10 +587,20 @@ cmd_update() {
   local new_status="${2:-}"
 
   if [[ -z "$num" || -z "$new_status" ]]; then
-    echo "$(red "Usage:") claude-conductor update <#> <status>"
+    echo "$(red "Usage:") claude-conductor update <#> <status> [--activity <text>]"
     echo "  Valid statuses: planning, coding, reviewing, blocked, done, merged, abandoned"
     exit 1
   fi
+
+  # Parse optional --activity flag
+  shift 2
+  local activity=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --activity) activity="$2"; shift 2 ;;
+      *) shift ;;
+    esac
+  done
 
   if ! session_exists "$sf" "$num"; then
     echo "$(red "Error:") Session #${num} not found in Active Sessions."
@@ -604,10 +614,16 @@ cmd_update() {
   fi
 
   update_session_field "$sf" "$num" 6 "$new_status"
-  append_log "$sf" "Session #${num} status changed to ${new_status}"
+  if [[ -n "$activity" ]]; then
+    update_session_field "$sf" "$num" 9 "$activity"
+  fi
+  append_log "$sf" "Session #${num} status changed to ${new_status}${activity:+ ($activity)}"
 
   echo ""
   echo "$(green "✓") Session #${num} updated to $(status_icon "$new_status") ${new_status}"
+  if [[ -n "$activity" ]]; then
+    echo "  Activity: ${activity}"
+  fi
   check_dependents "$sf" "$num" "$new_status"
   maybe_regenerate_dashboard "$sf"
   echo ""

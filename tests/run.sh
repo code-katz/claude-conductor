@@ -1434,6 +1434,41 @@ fi
 
 echo ""
 
+# --- Activity flag ---
+echo "$(bold "Activity flag")"
+
+# Reset for activity tests
+rm -f SESSIONS.md
+"$CLI" init <<< "TestProject" >/dev/null 2>&1
+"$CLI" add --persona Akira --task "Build API" --files "src/api/" >/dev/null 2>&1
+
+assert_exit "update with --activity exits 0" 0 "$CLI" update 1 coding --activity "writing tests"
+assert_output_contains "update shows activity" "Activity" "$CLI" update 1 coding --activity "fixing errors"
+
+# Verify activity stored in Notes column
+total=$((total + 1))
+if sed -n '/^## Active Sessions/,/^## [^A]/p' SESSIONS.md | grep "Akira" | grep -q "fixing errors"; then
+  echo "  $(green "✓") --activity stores text in Notes column"
+  pass=$((pass + 1))
+else
+  echo "  $(red "✗") --activity should store text in Notes column"
+  fail=$((fail + 1))
+fi
+
+# Verify update without --activity does not clear Notes
+"$CLI" update 1 reviewing >/dev/null 2>&1
+
+total=$((total + 1))
+if sed -n '/^## Active Sessions/,/^## [^A]/p' SESSIONS.md | grep "Akira" | grep -q "fixing errors"; then
+  echo "  $(green "✓") update without --activity preserves existing Notes"
+  pass=$((pass + 1))
+else
+  echo "  $(red "✗") update without --activity should preserve existing Notes"
+  fail=$((fail + 1))
+fi
+
+echo ""
+
 # --- Results ---
 echo "────────────────────────────────────"
 if [[ $fail -eq 0 ]]; then

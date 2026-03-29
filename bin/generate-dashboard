@@ -194,25 +194,29 @@ for (( i=0; i<active_count; i++ )); do
     deps_html="<div class=\"card-field\"><span class=\"field-label\">Depends on:</span> $(html_escape "$depends")</div>"
   fi
 
-  notes_html=""
+  activity_html=""
   if [[ -n "$notes" && "$notes" != " " ]]; then
-    notes_html="<div class=\"card-field\"><span class=\"field-label\">Notes:</span> $(html_escape "$notes")</div>"
+    urgent_class=""
+    if [[ "$notes" == *"needs response"* ]]; then
+      urgent_class=" card-activity--urgent"
+    fi
+    activity_html="<div class=\"card-activity${urgent_class}\">$(html_escape "$notes")</div>"
   fi
 
   session_cards_html+="
-    <div class=\"session-card\">
+    <div class=\"session-card\" data-started=\"${started}\">
       <div class=\"card-header\">
         ${icon_img}
         <span class=\"session-id\">#${a_num[$i]}</span>
         <span class=\"persona\">${persona}</span>
         <span class=\"status-badge\" style=\"background:${badge_color}\">${icon} ${local_status}</span>
       </div>
+      ${activity_html}
       <div class=\"card-body\">
         <div class=\"card-task\">${task}</div>
         <div class=\"card-field\"><span class=\"field-label\">Files:</span> <code>${files}</code></div>
-        <div class=\"card-field\"><span class=\"field-label\">Started:</span> ${started}</div>
+        <div class=\"card-field\"><span class=\"field-label\">Started:</span> ${started} <span class=\"card-elapsed\"></span></div>
         ${deps_html}
-        ${notes_html}
       </div>
     </div>"
 done
@@ -348,7 +352,15 @@ cat > "$dashboard_file" << HTMLEOF
       font-family: 'JetBrains Mono', monospace;
     }
 
-    main { padding: 24px 32px; }
+    @keyframes fadeIn {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+
+    main {
+      padding: 24px 32px;
+      animation: fadeIn 0.3s ease-in;
+    }
 
     .section-title {
       font-size: 1.1rem;
@@ -385,8 +397,8 @@ cat > "$dashboard_file" << HTMLEOF
     }
 
     .persona-icon {
-      width: 36px;
-      height: 36px;
+      width: 54px;
+      height: 54px;
       border-radius: 50%;
       object-fit: cover;
       border: 2px solid #2a2a28;
@@ -414,6 +426,26 @@ cat > "$dashboard_file" << HTMLEOF
       text-transform: uppercase;
       letter-spacing: 0.03em;
       white-space: nowrap;
+    }
+
+    .card-activity {
+      font-style: italic;
+      font-size: 0.8rem;
+      color: #b0aea5;
+      padding: 6px 16px;
+      background: #1a1a19;
+      border-bottom: 1px solid #2a2a28;
+    }
+
+    .card-activity--urgent {
+      color: #d4a843;
+      font-weight: 600;
+    }
+
+    .card-elapsed {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.78rem;
+      color: #d4a843;
     }
 
     .card-body { padding: 14px 16px; }
@@ -609,6 +641,41 @@ fi
 # Close HTML
 cat >> "$dashboard_file" << 'HTMLEOF'
   </main>
+  <script>
+    // Elapsed time calculation
+    function formatElapsed(startedStr) {
+      if (!startedStr) return '';
+      var start = new Date(startedStr.replace(' ', 'T'));
+      if (isNaN(start.getTime())) return '';
+      var diff = Math.floor((Date.now() - start.getTime()) / 1000);
+      if (diff < 0) diff = 0;
+      var days = Math.floor(diff / 86400);
+      var hours = Math.floor((diff % 86400) / 3600);
+      var mins = Math.floor((diff % 3600) / 60);
+      if (days > 0) return days + 'd ' + hours + 'h';
+      if (hours > 0) return hours + 'h ' + mins + 'm';
+      return mins + 'm';
+    }
+
+    function updateElapsed() {
+      var cards = document.querySelectorAll('.session-card[data-started]');
+      cards.forEach(function(card) {
+        var started = card.getAttribute('data-started');
+        var el = card.querySelector('.card-elapsed');
+        if (el && started) {
+          el.textContent = '(' + formatElapsed(started) + ')';
+        }
+      });
+    }
+
+    updateElapsed();
+    setInterval(updateElapsed, 60000);
+
+    // Take over refresh from meta tag for programmatic control
+    var meta = document.querySelector('meta[http-equiv="refresh"]');
+    if (meta) meta.remove();
+    setInterval(function() { location.reload(); }, 5000);
+  </script>
 </body>
 </html>
 HTMLEOF

@@ -254,6 +254,65 @@ assert_file_exists "creates dashboard next to provided SESSIONS.md" "subdir/.con
 
 echo ""
 
+# -----------------------------------------------
+# v0.4 UX improvements
+# -----------------------------------------------
+echo "$(bold "Icon size")"
+
+assert_file_contains "persona icons are 54px" ".conductor-dashboard.html" "width: 54px"
+
+echo ""
+
+echo "$(bold "Elapsed time")"
+
+assert_file_contains "session cards have data-started attribute" ".conductor-dashboard.html" "data-started="
+assert_file_contains "HTML contains formatElapsed function" ".conductor-dashboard.html" "formatElapsed"
+assert_file_contains "HTML contains card-elapsed class" ".conductor-dashboard.html" "card-elapsed"
+
+echo ""
+
+echo "$(bold "Fade-in refresh")"
+
+assert_file_contains "HTML contains fadeIn animation" ".conductor-dashboard.html" "fadeIn"
+assert_file_contains "meta refresh still present as fallback" ".conductor-dashboard.html" "http-equiv"
+
+echo ""
+
+echo "$(bold "Activity status")"
+
+# Create fixture with activity in Notes column
+cat > SESSIONS.md << 'EOF'
+# MyProject — Session Conductor
+
+---
+
+## Active Sessions
+
+| # | Persona | Task | Files | Status | Started | Depends On | Notes |
+|---|---------|------|-------|--------|---------|------------|-------|
+| 1 | Akira | Build API | app/ | coding | 2026-03-28 14:00 | | writing tests |
+| 2 | Sasha | Build UI | src/ | blocked | 2026-03-28 14:05 | #1 | needs response |
+
+## Merge Order
+
+No dependencies defined.
+
+## Completed Sessions
+
+| # | Persona | Task | Files | Duration | Completed | Outcome |
+|---|---------|------|-------|----------|-----------|---------|
+
+## Session Log
+EOF
+
+"$DASH" > /dev/null 2>&1
+
+assert_file_contains "activity text rendered on card" ".conductor-dashboard.html" "card-activity"
+assert_file_contains "activity shows text content" ".conductor-dashboard.html" "writing tests"
+assert_file_contains "needs response gets urgent class" ".conductor-dashboard.html" "card-activity--urgent"
+
+echo ""
+
 # --- Summary ---
 echo "────────────────────────────────────"
 if [[ $fail -eq 0 ]]; then
