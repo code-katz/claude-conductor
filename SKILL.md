@@ -249,6 +249,18 @@ Status changes are low-stakes and time-sensitive. Write immediately and confirm.
 ### No automatic git commit
 SESSIONS.md is a coordination artifact, not a changelog. The user can commit it if they want it in source control, but it changes too frequently to auto-commit on every update.
 
+### Proactive status updates
+If you are running inside a registered conductor session (the session prompt says "You are session #N"), update your status automatically at these transitions:
+
+- **Exiting plan mode and starting edits:** Run `claude-conductor u N coding --activity "writing code"`
+- **Running tests:** Run `claude-conductor u N coding --activity "running tests"`
+- **Fixing errors from tests or linting:** Run `claude-conductor u N coding --activity "fixing errors"`
+- **Waiting for user input:** Run `claude-conductor u N coding --activity "needs response"`
+- **Code complete, reviewing:** Run `claude-conductor u N reviewing --activity "self-review"`
+- **Task finished:** Run `claude-conductor d N`
+
+These updates keep the coordinator dashboard accurate without requiring the user to manually track each session. The `--activity` flag sets a sub-status visible on the dashboard tiles.
+
 ---
 
 ## Session Log
