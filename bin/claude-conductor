@@ -890,6 +890,29 @@ cmd_dashboard() {
     exit 1
   fi
 
+  local dashboard_dir
+  dashboard_dir="$(dirname "$sf")"
+  local pidfile="$dashboard_dir/.conductor-server.pid"
+  local port=8484
+
+  # Handle --stop
+  if [[ "${1:-}" == "--stop" ]]; then
+    if [[ -f "$pidfile" ]]; then
+      local pid
+      pid=$(cat "$pidfile")
+      kill "$pid" 2>/dev/null || true
+      rm -f "$pidfile"
+      echo ""
+      echo "$(green "✓") Dashboard server stopped."
+      echo ""
+    else
+      echo ""
+      echo "$(dim "No dashboard server running.")"
+      echo ""
+    fi
+    return
+  fi
+
   local dashboard_path
   dashboard_path=$("$gen" "$sf")
 
@@ -897,12 +920,23 @@ cmd_dashboard() {
   echo "$(green "✓") Dashboard generated: $(dim "$dashboard_path")"
 
   if [[ "${1:-}" == "--open" ]]; then
-    if command -v open >/dev/null 2>&1; then
-      open "$dashboard_path"
-    elif command -v xdg-open >/dev/null 2>&1; then
-      xdg-open "$dashboard_path"
+    # Start a background HTTP server if not already running
+    if [[ -f "$pidfile" ]] && kill -0 "$(cat "$pidfile")" 2>/dev/null; then
+      echo "  Server already running on port ${port}."
+    else
+      python3 -m http.server "$port" --directory "$dashboard_dir" --bind 127.0.0.1 >/dev/null 2>&1 &
+      echo "$!" > "$pidfile"
+      echo "  $(green "✓") Server started on port ${port} (PID $(cat "$pidfile"))."
+      sleep 0.5
     fi
-    echo "  Opened in default browser."
+    local url="http://localhost:${port}/.conductor-dashboard.html"
+    if command -v open >/dev/null 2>&1; then
+      open "$url"
+    elif command -v xdg-open >/dev/null 2>&1; then
+      xdg-open "$url"
+    fi
+    echo "  Opened: $(dim "$url")"
+    echo "  Stop with: $(dim "claude-conductor dash --stop")"
   fi
   echo ""
 }

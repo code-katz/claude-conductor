@@ -274,7 +274,7 @@ echo ""
 echo "$(bold "Fade-in refresh")"
 
 assert_file_contains "HTML contains fadeIn animation" ".conductor-dashboard.html" "fadeIn"
-assert_file_contains "iframe polling present for live updates" ".conductor-dashboard.html" "poll-frame"
+assert_file_contains "fetch polling present for live updates" ".conductor-dashboard.html" "pollForChanges"
 
 echo ""
 

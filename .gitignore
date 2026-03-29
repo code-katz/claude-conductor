@@ -8,3 +8,4 @@ publish/posts/
 
 # Generated dashboard
 .conductor-dashboard.html
+.conductor-server.pid

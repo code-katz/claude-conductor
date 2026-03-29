@@ -643,7 +643,6 @@ fi
 # Close HTML
 cat >> "$dashboard_file" << 'HTMLEOF'
   </main>
-  <iframe id="poll-frame" style="display:none"></iframe>
   <script>
     // Elapsed time calculation
     function formatElapsed(startedStr) {
@@ -674,31 +673,30 @@ cat >> "$dashboard_file" << 'HTMLEOF'
     updateElapsed();
     setInterval(updateElapsed, 60000);
 
-    // Smooth content swap via hidden iframe
-    // Only swaps when the conductor-version meta tag changes
-    // (set by the CLI when it regenerates the HTML file)
+    // Live content swap via fetch
+    // Polls the same URL every 3 seconds, compares version hash,
+    // and smoothly swaps <main> content only when data has changed.
     var currentVersion = document.querySelector('meta[name="conductor-version"]').content;
 
     function pollForChanges() {
-      var iframe = document.getElementById('poll-frame');
-      iframe.onload = function() {
-        try {
-          var iframeDoc = iframe.contentDocument;
-          if (!iframeDoc) return;
-          var versionMeta = iframeDoc.querySelector('meta[name="conductor-version"]');
+      fetch(location.href + '?' + Date.now())
+        .then(function(r) { return r.text(); })
+        .then(function(html) {
+          var parser = new DOMParser();
+          var doc = parser.parseFromString(html, 'text/html');
+          var versionMeta = doc.querySelector('meta[name="conductor-version"]');
           if (versionMeta && versionMeta.content !== currentVersion) {
             currentVersion = versionMeta.content;
-            var newMain = iframeDoc.querySelector('main');
+            var newMain = doc.querySelector('main');
             if (newMain) {
               var main = document.querySelector('main');
               main.style.opacity = '0';
               setTimeout(function() {
                 main.innerHTML = newMain.innerHTML;
-                // Update header timestamp too
-                var newHeader = iframeDoc.querySelector('.last-updated');
+                var newHeader = doc.querySelector('.last-updated');
                 var header = document.querySelector('.last-updated');
                 if (newHeader && header) header.textContent = newHeader.textContent;
-                var newCount = iframeDoc.querySelector('.session-count');
+                var newCount = doc.querySelector('.session-count');
                 var count = document.querySelector('.session-count');
                 if (newCount && count) count.textContent = newCount.textContent;
                 updateElapsed();
@@ -706,15 +704,11 @@ cat >> "$dashboard_file" << 'HTMLEOF'
               }, 150);
             }
           }
-        } catch(e) {
-          // Cross-origin or load error; ignore
-        }
-        iframe.removeAttribute('src');
-      };
-      iframe.src = location.href + '?' + Date.now();
+        })
+        .catch(function() { /* server not running or network error; ignore */ });
     }
 
-    setInterval(pollForChanges, 5000);
+    setInterval(pollForChanges, 3000);
   </script>
 </body>
 </html>
