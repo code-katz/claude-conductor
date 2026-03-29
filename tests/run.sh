@@ -153,10 +153,10 @@ cat > SESSIONS.md << 'EOF'
 
 ## Active Sessions
 
-| # | Persona | Task | Files | Status | Started | Depends On | Notes |
-|---|---------|------|-------|--------|---------|------------|-------|
-| 1 | Akira | Build API endpoints | app/routers/ | coding | 2026-03-28 14:00 | — | — |
-| 2 | Sasha | Build UI wizard | frontend/src/ | blocked | 2026-03-28 14:05 | #1 | Waiting on API |
+| # | Persona | Task | Files | Status | Started | Depends On | Notes | Activity |
+|---|---------|------|-------|--------|---------|------------|-------|----------|
+| 1 | Akira | Build API endpoints | app/routers/ | coding | 2026-03-28 14:00 | — | — | |
+| 2 | Sasha | Build UI wizard | frontend/src/ | blocked | 2026-03-28 14:05 | #1 | Waiting on API | |
 
 ## Merge Order
 
@@ -204,10 +204,10 @@ Active coordination view for parallel Claude Code sessions.
 
 ## Active Sessions
 
-| # | Persona | Task | Files | Status | Started | Depends On | Notes |
-|---|---------|------|-------|--------|---------|------------|-------|
-| 1 | Akira | Build API | src/api/ | planning | 2026-03-28 14:00 | | |
-| 2 | Sasha | Build UI | src/ui/ | blocked | 2026-03-28 14:00 | #1 | |
+| # | Persona | Task | Files | Status | Started | Depends On | Notes | Activity |
+|---|---------|------|-------|--------|---------|------------|-------|----------|
+| 1 | Akira | Build API | src/api/ | planning | 2026-03-28 14:00 | | | |
+| 2 | Sasha | Build UI | src/ui/ | blocked | 2026-03-28 14:00 | #1 | | |
 
 ## Merge Order
 
@@ -240,10 +240,10 @@ cat > SESSIONS.md << 'EOF'
 
 ## Active Sessions
 
-| # | Persona | Task | Files | Status | Started | Depends On | Notes |
-|---|---------|------|-------|--------|---------|------------|-------|
-| 1 | Akira | Build API | src/api/ | coding | 2026-03-28 14:00 | | |
-| 2 | Sasha | Build UI | src/ui/ | blocked | 2026-03-28 14:00 | #1 | |
+| # | Persona | Task | Files | Status | Started | Depends On | Notes | Activity |
+|---|---------|------|-------|--------|---------|------------|-------|----------|
+| 1 | Akira | Build API | src/api/ | coding | 2026-03-28 14:00 | | | |
+| 2 | Sasha | Build UI | src/ui/ | blocked | 2026-03-28 14:00 | #1 | | |
 
 ## Merge Order
 
@@ -305,10 +305,10 @@ cat > SESSIONS.md << 'EOF'
 
 ## Active Sessions
 
-| # | Persona | Task | Files | Status | Started | Depends On | Notes |
-|---|---------|------|-------|--------|---------|------------|-------|
-| 1 | Akira | Build API | src/api/ | coding | 2026-03-28 14:00 | | |
-| 2 | Sasha | Build UI | src/ui/ | blocked | 2026-03-28 14:00 | #1 | |
+| # | Persona | Task | Files | Status | Started | Depends On | Notes | Activity |
+|---|---------|------|-------|--------|---------|------------|-------|----------|
+| 1 | Akira | Build API | src/api/ | coding | 2026-03-28 14:00 | | | |
+| 2 | Sasha | Build UI | src/ui/ | blocked | 2026-03-28 14:00 | #1 | | |
 
 ## Merge Order
 
@@ -336,10 +336,10 @@ fi
 
 total=$((total + 1))
 if grep -q "scope changed" SESSIONS.md; then
-  echo "  $(green "✓") abandon writes reason to Notes column"
+  echo "  $(green "✓") abandon writes reason to Activity column"
   pass=$((pass + 1))
 else
-  echo "  $(red "✗") abandon should write reason to Notes column"
+  echo "  $(red "✗") abandon should write reason to Activity column"
   fail=$((fail + 1))
 fi
 
@@ -358,11 +358,11 @@ cat > SESSIONS.md << 'EOF'
 
 ## Active Sessions
 
-| # | Persona | Task | Files | Status | Started | Depends On | Notes |
-|---|---------|------|-------|--------|---------|------------|-------|
-| 1 | Akira | Build API | src/api/ | done | 2026-03-28 14:00 | | |
-| 2 | Sasha | Build UI | src/ui/ | coding | 2026-03-28 14:00 | | |
-| 3 | Robin | Write tests | tests/ | merged | 2026-03-28 14:00 | | |
+| # | Persona | Task | Files | Status | Started | Depends On | Notes | Activity |
+|---|---------|------|-------|--------|---------|------------|-------|----------|
+| 1 | Akira | Build API | src/api/ | done | 2026-03-28 14:00 | | | |
+| 2 | Sasha | Build UI | src/ui/ | coding | 2026-03-28 14:00 | | | |
+| 3 | Robin | Write tests | tests/ | merged | 2026-03-28 14:00 | | | |
 
 ## Merge Order
 
@@ -396,9 +396,9 @@ cat > SESSIONS.md << 'EOF'
 
 ## Active Sessions
 
-| # | Persona | Task | Files | Status | Started | Depends On | Notes |
-|---|---------|------|-------|--------|---------|------------|-------|
-| 1 | Akira | Build API | src/api/ | coding | 2026-03-28 14:00 | | |
+| # | Persona | Task | Files | Status | Started | Depends On | Notes | Activity |
+|---|---------|------|-------|--------|---------|------------|-------|----------|
+| 1 | Akira | Build API | src/api/ | coding | 2026-03-28 14:00 | | | |
 
 ## Merge Order
 
@@ -427,9 +427,9 @@ cat > SESSIONS.md << 'EOF'
 
 ## Active Sessions
 
-| # | Persona | Task | Files | Status | Started | Depends On | Notes |
-|---|---------|------|-------|--------|---------|------------|-------|
-| 1 | Akira | Build API | src/api/ | planning | 2026-03-28 14:00 | | |
+| # | Persona | Task | Files | Status | Started | Depends On | Notes | Activity |
+|---|---------|------|-------|--------|---------|------------|-------|----------|
+| 1 | Akira | Build API | src/api/ | planning | 2026-03-28 14:00 | | | |
 
 ## Merge Order
 
@@ -484,9 +484,9 @@ cat > SESSIONS.md << 'EOF'
 
 ## Active Sessions
 
-| # | Persona | Task | Files | Status | Started | Depends On | Notes |
-|---|---------|------|-------|--------|---------|------------|-------|
-| 1 | Akira | Build API | src/api/ | coding | 2026-03-28 14:00 | | |
+| # | Persona | Task | Files | Status | Started | Depends On | Notes | Activity |
+|---|---------|------|-------|--------|---------|------------|-------|----------|
+| 1 | Akira | Build API | src/api/ | coding | 2026-03-28 14:00 | | | |
 
 ## Merge Order
 
@@ -519,9 +519,9 @@ cat > SESSIONS.md << 'EOF'
 
 ## Active Sessions
 
-| # | Persona | Task | Files | Status | Started | Depends On | Notes |
-|---|---------|------|-------|--------|---------|------------|-------|
-| 1 | Akira | Build API | src/api/ | done | 2026-03-28 14:00 | | |
+| # | Persona | Task | Files | Status | Started | Depends On | Notes | Activity |
+|---|---------|------|-------|--------|---------|------------|-------|----------|
+| 1 | Akira | Build API | src/api/ | done | 2026-03-28 14:00 | | | |
 
 ## Merge Order
 
@@ -559,11 +559,11 @@ cat > SESSIONS.md << 'EOF'
 
 ## Active Sessions
 
-| # | Persona | Task | Files | Status | Started | Depends On | Notes |
-|---|---------|------|-------|--------|---------|------------|-------|
-| 1 | Akira | Build API | src/api/ | coding | 2026-03-28 14:00 | | |
-| 2 | Robin | Write tests | tests/ | coding | 2026-03-28 14:00 | | |
-| 3 | Sasha | Build UI | src/ui/ | blocked | 2026-03-28 14:00 | #1, #2 | |
+| # | Persona | Task | Files | Status | Started | Depends On | Notes | Activity |
+|---|---------|------|-------|--------|---------|------------|-------|----------|
+| 1 | Akira | Build API | src/api/ | coding | 2026-03-28 14:00 | | | |
+| 2 | Robin | Write tests | tests/ | coding | 2026-03-28 14:00 | | | |
+| 3 | Sasha | Build UI | src/ui/ | blocked | 2026-03-28 14:00 | #1, #2 | | |
 
 ## Merge Order
 
@@ -588,10 +588,10 @@ cat > SESSIONS.md << 'EOF'
 
 ## Active Sessions
 
-| # | Persona | Task | Files | Status | Started | Depends On | Notes |
-|---|---------|------|-------|--------|---------|------------|-------|
-| 1 | Akira | Build API | src/api/ | coding | 2026-03-28 14:00 | | |
-| 2 | Sasha | Build UI | src/ui/ | coding | 2026-03-28 14:00 | | |
+| # | Persona | Task | Files | Status | Started | Depends On | Notes | Activity |
+|---|---------|------|-------|--------|---------|------------|-------|----------|
+| 1 | Akira | Build API | src/api/ | coding | 2026-03-28 14:00 | | | |
+| 2 | Sasha | Build UI | src/ui/ | coding | 2026-03-28 14:00 | | | |
 
 ## Merge Order
 
@@ -629,11 +629,11 @@ cat > SESSIONS.md << 'EOF'
 
 ## Active Sessions
 
-| # | Persona | Task | Files | Status | Started | Depends On | Notes |
-|---|---------|------|-------|--------|---------|------------|-------|
-| 1 | Akira | Build API | src/api/ | merged | 2026-03-28 14:00 | | |
-| 2 | Sasha | Build UI | src/ui/ | coding | 2026-03-28 14:00 | | |
-| 3 | Robin | Write tests | tests/ | done | 2026-03-28 14:00 | | |
+| # | Persona | Task | Files | Status | Started | Depends On | Notes | Activity |
+|---|---------|------|-------|--------|---------|------------|-------|----------|
+| 1 | Akira | Build API | src/api/ | merged | 2026-03-28 14:00 | | | |
+| 2 | Sasha | Build UI | src/ui/ | coding | 2026-03-28 14:00 | | | |
+| 3 | Robin | Write tests | tests/ | done | 2026-03-28 14:00 | | | |
 
 ## Merge Order
 
@@ -667,11 +667,11 @@ cat > SESSIONS.md << 'EOF'
 
 ## Active Sessions
 
-| # | Persona | Task | Files | Status | Started | Depends On | Notes |
-|---|---------|------|-------|--------|---------|------------|-------|
-| 1 | Akira | Build API | src/api/ | done | 2026-03-28 14:00 | | |
-| 2 | Sasha | Build UI | src/ui/ | coding | 2026-03-28 14:00 | | |
-| 3 | Robin | Write tests | tests/ | blocked | 2026-03-28 14:00 | #2 | |
+| # | Persona | Task | Files | Status | Started | Depends On | Notes | Activity |
+|---|---------|------|-------|--------|---------|------------|-------|----------|
+| 1 | Akira | Build API | src/api/ | done | 2026-03-28 14:00 | | | |
+| 2 | Sasha | Build UI | src/ui/ | coding | 2026-03-28 14:00 | | | |
+| 3 | Robin | Write tests | tests/ | blocked | 2026-03-28 14:00 | #2 | | |
 
 ## Merge Order
 
@@ -709,10 +709,10 @@ cat > SESSIONS.md << 'EOF'
 
 ## Active Sessions
 
-| # | Persona | Task | Files | Status | Started | Depends On | Notes |
-|---|---------|------|-------|--------|---------|------------|-------|
-| 1 | Akira | Build API | src/api/ | done | 2026-03-28 14:00 | | |
-| 2 | Robin | Write tests | tests/ | abandoned | 2026-03-28 15:00 | | |
+| # | Persona | Task | Files | Status | Started | Depends On | Notes | Activity |
+|---|---------|------|-------|--------|---------|------------|-------|----------|
+| 1 | Akira | Build API | src/api/ | done | 2026-03-28 14:00 | | | |
+| 2 | Robin | Write tests | tests/ | abandoned | 2026-03-28 15:00 | | | |
 
 ## Merge Order
 
@@ -801,8 +801,8 @@ cat > SESSIONS.md << 'EOF'
 
 ## Active Sessions
 
-| # | Persona | Task | Files | Status | Started | Depends On | Notes |
-|---|---------|------|-------|--------|---------|------------|-------|
+| # | Persona | Task | Files | Status | Started | Depends On | Notes | Activity |
+|---|---------|------|-------|--------|---------|------------|-------|----------|
 
 ## Merge Order
 
@@ -886,9 +886,9 @@ cat > SESSIONS.md << 'EOF'
 
 ## Active Sessions
 
-| # | Persona | Task | Files | Status | Started | Depends On | Notes |
-|---|---------|------|-------|--------|---------|------------|-------|
-| 1 | Akira | Build API | src/api/ | planning | 2026-03-28 14:00 | | |
+| # | Persona | Task | Files | Status | Started | Depends On | Notes | Activity |
+|---|---------|------|-------|--------|---------|------------|-------|----------|
+| 1 | Akira | Build API | src/api/ | planning | 2026-03-28 14:00 | | | |
 
 ## Merge Order
 
@@ -919,9 +919,9 @@ cat > SESSIONS.md << 'EOF'
 
 ## Active Sessions
 
-| # | Persona | Task | Files | Status | Started | Depends On | Notes |
-|---|---------|------|-------|--------|---------|------------|-------|
-| 1 | Akira | Build API | src/api/ | planning | 2026-03-28 14:00 | | |
+| # | Persona | Task | Files | Status | Started | Depends On | Notes | Activity |
+|---|---------|------|-------|--------|---------|------------|-------|----------|
+| 1 | Akira | Build API | src/api/ | planning | 2026-03-28 14:00 | | | |
 
 ## Merge Order
 
@@ -972,9 +972,9 @@ cat > SESSIONS.md << 'EOF'
 
 ## Active Sessions
 
-| # | Persona | Task | Files | Status | Started | Depends On | Notes |
-|---|---------|------|-------|--------|---------|------------|-------|
-| 1 | Akira | Build the API endpoints | src/api/routers/ | planning | 2026-03-28 14:00 | #2 | Important session |
+| # | Persona | Task | Files | Status | Started | Depends On | Notes | Activity |
+|---|---------|------|-------|--------|---------|------------|-------|----------|
+| 1 | Akira | Build the API endpoints | src/api/routers/ | planning | 2026-03-28 14:00 | #2 | Important session | |
 
 ## Merge Order
 
@@ -1102,10 +1102,10 @@ cat > SESSIONS.md << 'EOF'
 
 ## Active Sessions
 
-| # | Persona | Task | Files | Status | Started | Depends On | Notes |
-|---|---------|------|-------|--------|---------|------------|-------|
-| 1 | Akira | Build API | src/api/ | coding | 2026-03-28 14:00 | | |
-| 2 | Sasha | Build UI | src/api/, src/ui/ | coding | 2026-03-28 14:05 | | |
+| # | Persona | Task | Files | Status | Started | Depends On | Notes | Activity |
+|---|---------|------|-------|--------|---------|------------|-------|----------|
+| 1 | Akira | Build API | src/api/ | coding | 2026-03-28 14:00 | | | |
+| 2 | Sasha | Build UI | src/api/, src/ui/ | coding | 2026-03-28 14:05 | | | |
 
 ## Merge Order
 
@@ -1137,10 +1137,10 @@ cat > SESSIONS.md << 'EOF'
 
 ## Active Sessions
 
-| # | Persona | Task | Files | Status | Started | Depends On | Notes |
-|---|---------|------|-------|--------|---------|------------|-------|
-| 1 | Akira | Build API | src/api/ | coding | 2026-03-28 14:00 | | |
-| 2 | Sasha | Build UI | src/ui/ | coding | 2026-03-28 14:05 | | |
+| # | Persona | Task | Files | Status | Started | Depends On | Notes | Activity |
+|---|---------|------|-------|--------|---------|------------|-------|----------|
+| 1 | Akira | Build API | src/api/ | coding | 2026-03-28 14:00 | | | |
+| 2 | Sasha | Build UI | src/ui/ | coding | 2026-03-28 14:05 | | | |
 
 ## Merge Order
 
@@ -1172,11 +1172,11 @@ cat > SESSIONS.md << 'EOF'
 
 ## Active Sessions
 
-| # | Persona | Task | Files | Status | Started | Depends On | Notes |
-|---|---------|------|-------|--------|---------|------------|-------|
-| 1 | Akira | Build API | src/api/ | coding | 2026-03-28 14:00 | | |
-| 2 | Sasha | Build UI | src/ui/ | coding | 2026-03-28 14:05 | | |
-| 3 | Robin | Write tests | src/api/tests/ | coding | 2026-03-28 14:10 | | |
+| # | Persona | Task | Files | Status | Started | Depends On | Notes | Activity |
+|---|---------|------|-------|--------|---------|------------|-------|----------|
+| 1 | Akira | Build API | src/api/ | coding | 2026-03-28 14:00 | | | |
+| 2 | Sasha | Build UI | src/ui/ | coding | 2026-03-28 14:05 | | | |
+| 3 | Robin | Write tests | src/api/tests/ | coding | 2026-03-28 14:10 | | | |
 
 ## Merge Order
 
@@ -1209,9 +1209,9 @@ cat > SESSIONS.md << 'EOF'
 
 ## Active Sessions
 
-| # | Persona | Task | Files | Status | Started | Depends On | Notes |
-|---|---------|------|-------|--------|---------|------------|-------|
-| 1 | Akira | Build API | src/api/ | coding | 2026-03-28 14:00 | | |
+| # | Persona | Task | Files | Status | Started | Depends On | Notes | Activity |
+|---|---------|------|-------|--------|---------|------------|-------|----------|
+| 1 | Akira | Build API | src/api/ | coding | 2026-03-28 14:00 | | | |
 
 ## Merge Order
 
@@ -1243,11 +1243,11 @@ cat > SESSIONS.md << 'EOF'
 
 ## Active Sessions
 
-| # | Persona | Task | Files | Status | Started | Depends On | Notes |
-|---|---------|------|-------|--------|---------|------------|-------|
-| 1 | Akira | Build API | src/api/ | done | 2026-03-28 14:00 | | |
-| 2 | Robin | Write tests | src/api/ | abandoned | 2026-03-28 14:05 | | |
-| 3 | Sasha | Build UI | src/api/ | coding | 2026-03-28 14:10 | | |
+| # | Persona | Task | Files | Status | Started | Depends On | Notes | Activity |
+|---|---------|------|-------|--------|---------|------------|-------|----------|
+| 1 | Akira | Build API | src/api/ | done | 2026-03-28 14:00 | | | |
+| 2 | Robin | Write tests | src/api/ | abandoned | 2026-03-28 14:05 | | | |
+| 3 | Sasha | Build UI | src/api/ | coding | 2026-03-28 14:10 | | | |
 
 ## Merge Order
 
@@ -1284,10 +1284,10 @@ cat > SESSIONS.md << 'EOF'
 
 ## Active Sessions
 
-| # | Persona | Task | Files | Status | Started | Depends On | Notes |
-|---|---------|------|-------|--------|---------|------------|-------|
-| 1 | Akira | Build API | src/api/ | coding | 2026-03-28 14:00 | | |
-| 2 | Sasha | Build UI | src/ui/ | coding | 2026-03-28 14:05 | | |
+| # | Persona | Task | Files | Status | Started | Depends On | Notes | Activity |
+|---|---------|------|-------|--------|---------|------------|-------|----------|
+| 1 | Akira | Build API | src/api/ | coding | 2026-03-28 14:00 | | | |
+| 2 | Sasha | Build UI | src/ui/ | coding | 2026-03-28 14:05 | | | |
 
 ## Merge Order
 
@@ -1312,10 +1312,10 @@ cat > SESSIONS.md << 'EOF'
 
 ## Active Sessions
 
-| # | Persona | Task | Files | Status | Started | Depends On | Notes |
-|---|---------|------|-------|--------|---------|------------|-------|
-| 1 | Akira | Build API | src/api/ | coding | 2026-03-28 14:00 | | |
-| 2 | Robin | Write tests | src/api/tests/ | coding | 2026-03-28 14:05 | | |
+| # | Persona | Task | Files | Status | Started | Depends On | Notes | Activity |
+|---|---------|------|-------|--------|---------|------------|-------|----------|
+| 1 | Akira | Build API | src/api/ | coding | 2026-03-28 14:00 | | | |
+| 2 | Robin | Write tests | src/api/tests/ | coding | 2026-03-28 14:05 | | | |
 
 ## Merge Order
 
@@ -1445,25 +1445,25 @@ rm -f SESSIONS.md
 assert_exit "update with --activity exits 0" 0 "$CLI" update 1 coding --activity "writing tests"
 assert_output_contains "update shows activity" "Activity" "$CLI" update 1 coding --activity "fixing errors"
 
-# Verify activity stored in Notes column
+# Verify activity stored in Activity column (field 10)
 total=$((total + 1))
 if sed -n '/^## Active Sessions/,/^## [^A]/p' SESSIONS.md | grep "Akira" | grep -q "fixing errors"; then
-  echo "  $(green "✓") --activity stores text in Notes column"
+  echo "  $(green "✓") --activity stores text in Activity column"
   pass=$((pass + 1))
 else
-  echo "  $(red "✗") --activity should store text in Notes column"
+  echo "  $(red "✗") --activity should store text in Activity column"
   fail=$((fail + 1))
 fi
 
-# Verify update without --activity does not clear Notes
+# Verify update without --activity does not clear Activity
 "$CLI" update 1 reviewing >/dev/null 2>&1
 
 total=$((total + 1))
 if sed -n '/^## Active Sessions/,/^## [^A]/p' SESSIONS.md | grep "Akira" | grep -q "fixing errors"; then
-  echo "  $(green "✓") update without --activity preserves existing Notes"
+  echo "  $(green "✓") update without --activity preserves existing Activity"
   pass=$((pass + 1))
 else
-  echo "  $(red "✗") update without --activity should preserve existing Notes"
+  echo "  $(red "✗") update without --activity should preserve existing Activity"
   fail=$((fail + 1))
 fi
 

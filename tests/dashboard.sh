@@ -106,11 +106,11 @@ Active coordination view for parallel Claude Code sessions.
 
 ## Active Sessions
 
-| # | Persona | Task | Files | Status | Started | Depends On | Notes |
-|---|---------|------|-------|--------|---------|------------|-------|
-| 1 | Akira | Build API endpoints | app/routers/ | coding | 2026-03-28 14:00 | — | API contracts defined |
-| 2 | Sasha | Build UI wizard | frontend/src/ | blocked | 2026-03-28 14:05 | #1 | Waiting on API |
-| 3 | Robin | Write test suite | tests/ | planning | 2026-03-28 14:10 | — | |
+| # | Persona | Task | Files | Status | Started | Depends On | Notes | Activity |
+|---|---------|------|-------|--------|---------|------------|-------|----------|
+| 1 | Akira | Build API endpoints | app/routers/ | coding | 2026-03-28 14:00 | — | API contracts defined | |
+| 2 | Sasha | Build UI wizard | frontend/src/ | blocked | 2026-03-28 14:05 | #1 | Waiting on API | |
+| 3 | Robin | Write test suite | tests/ | planning | 2026-03-28 14:10 | — | | |
 
 ## Merge Order
 
@@ -208,8 +208,8 @@ cat > SESSIONS.md << 'EOF'
 
 ## Active Sessions
 
-| # | Persona | Task | Files | Status | Started | Depends On | Notes |
-|---|---------|------|-------|--------|---------|------------|-------|
+| # | Persona | Task | Files | Status | Started | Depends On | Notes | Activity |
+|---|---------|------|-------|--------|---------|------------|-------|----------|
 
 ## Merge Order
 
@@ -280,7 +280,7 @@ echo ""
 
 echo "$(bold "Activity status")"
 
-# Create fixture with activity in Notes column
+# Create fixture with activity in Activity column
 cat > SESSIONS.md << 'EOF'
 # MyProject — Session Conductor
 
