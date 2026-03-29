@@ -5,6 +5,37 @@ Auto-maintained via [claude-devlog-skill](https://github.com/code-katz/claude-de
 
 ---
 
+## [2026-03-29] P3: CLI sub-commands implemented (start, update, done, merge, abandon, clear)
+
+**Category:** `feature`
+**Tags:** `conductor`, `cli`, `session-lifecycle`, `code-katz`
+**Risk Level:** `low`
+**Breaking Change:** `no`
+
+### Summary
+Implemented all 6 missing CLI sub-commands for claude-conductor, closing the gap between the SKILL.md spec (7 sub-commands) and the CLI (previously only status, init, help). Test suite expanded from 20 to 44 tests.
+
+### Detail
+The CLI now supports the full session lifecycle from the terminal: `start` for interactive registration, `update` for status changes, `done`/`merge`/`abandon` for completion states, and `clear` for archiving finished sessions to the Completed table with duration calculation and renumbering.
+
+9 shared helper functions were extracted for table parsing, row insertion/update, dependency checking, session log appending, and cross-platform (macOS/Linux) duration calculation. The `clear` command is the most complex, handling row migration between Active and Completed tables, duration computation, sequential renumbering, and Depends On reference updates.
+
+Also fixed a pre-existing test ordering bug where `init` was called twice without cleanup, causing a false failure.
+
+### Decisions Made
+- **`done` stays in Active table:** Only `clear` moves rows to Completed. This keeps `done` reversible (you can `update` back to `coding` if needed) and separates "task complete" from "archived."
+- **No status transition enforcement:** The CLI allows any status change (e.g., `planning` directly to `merged`). It is a bookkeeping tool, not a workflow enforcer. Users know their own workflow.
+- **Renumbering on `clear`:** When completed sessions are archived, remaining Active sessions get sequential numbers and all Depends On references are updated to match. This prevents gaps in session numbering.
+- **macOS/Linux date compat:** Duration calculation uses `date -j -f` on macOS and `date -d` on Linux with a detection wrapper, since both are deployment targets.
+- **No `/conductor plan` in CLI:** This sub-command is skill-only because it invokes `/parallel`, which is a Claude Code concept with no terminal equivalent.
+
+### Related
+- Implementation plan: `plans/2026-03-29-p3-cli-subcommands.md`
+- v0.1 completion plan: `plans/2026-03-28-v01-completion-plan.md`
+- Prior entry: [2026-03-28] Project inception and initial repo scaffolding
+
+---
+
 ## [2026-03-28] Project inception and initial repo scaffolding
 
 **Category:** `milestone`

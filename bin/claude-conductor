@@ -67,6 +67,149 @@ check_sessions() {
   echo "$sf"
 }
 
+# Validate status string
+validate_status() {
+  case "$1" in
+    planning|coding|reviewing|blocked|done|merged|abandoned) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# Check if session number exists in Active Sessions table
+session_exists() {
+  local sf="$1" num="$2"
+  sed -n '/^## Active Sessions/,/^## [^A]/p' "$sf" | \
+    grep -qE "^\| *${num} *\|"
+}
+
+# Get a field value from a session row (field index: 2=#, 3=Persona, 4=Task, 5=Files, 6=Status, 7=Started, 8=Depends On, 9=Notes)
+get_session_field() {
+  local sf="$1" num="$2" field="$3"
+  sed -n '/^## Active Sessions/,/^## [^A]/p' "$sf" | \
+    grep -E "^\| *${num} *\|" | \
+    awk -F'|' -v f="$field" '{gsub(/^ +| +$/, "", $f); print $f}'
+}
+
+# Get next available session number
+next_session_number() {
+  local sf="$1"
+  local max=0
+  local num
+  while IFS= read -r line; do
+    if [[ "$line" == "|"* && "$line" != *"---"* && "$line" != *"Persona"* ]]; then
+      num=$(echo "$line" | awk -F'|' '{gsub(/^ +| +$/, "", $2); print $2}')
+      if [[ "$num" =~ ^[0-9]+$ ]] && (( num > max )); then
+        max=$num
+      fi
+    fi
+  done < <(sed -n '/^## Active Sessions/,/^## [^A]/p' "$sf")
+  echo $((max + 1))
+}
+
+# Update a field in a session row in-place
+update_session_field() {
+  local sf="$1" num="$2" field_idx="$3" new_value="$4"
+  local tmp="${sf}.tmp"
+  awk -F'|' -v OFS='|' -v num="$num" -v fidx="$field_idx" -v val="$new_value" '
+    /^## Active Sessions/ { in_active=1 }
+    /^## [^A]/ && in_active { in_active=0 }
+    in_active && /^\|/ && $2 ~ "^ *"num" *$" {
+      $fidx = " " val " "
+    }
+    { print }
+  ' "$sf" > "$tmp" && mv "$tmp" "$sf"
+}
+
+# Insert a new row into the Active Sessions table
+insert_active_row() {
+  local sf="$1" row="$2"
+  local tmp="${sf}.tmp"
+  awk -v row="$row" '
+    /^## Active Sessions/ { in_active=1 }
+    in_active && /^\|---/ { found_sep=1 }
+    in_active && found_sep && !/^\|/ && !inserted {
+      print row
+      inserted=1
+    }
+    /^## [^A]/ && in_active { in_active=0 }
+    { print }
+  ' "$sf" > "$tmp" && mv "$tmp" "$sf"
+}
+
+# Insert a row into the Completed Sessions table
+insert_completed_row() {
+  local sf="$1" row="$2"
+  local tmp="${sf}.tmp"
+  awk -v row="$row" '
+    /^## Completed Sessions/ { in_completed=1 }
+    in_completed && /^\|---/ { found_sep=1 }
+    in_completed && found_sep && !/^\|/ && !inserted {
+      print row
+      inserted=1
+    }
+    /^## [^C]/ && in_completed { in_completed=0 }
+    { print }
+  ' "$sf" > "$tmp" && mv "$tmp" "$sf"
+}
+
+# Append timestamped entry to Session Log
+append_log() {
+  local sf="$1" message="$2"
+  local ts
+  ts=$(date "+%Y-%m-%d %H:%M")
+  printf '\n### [%s] %s\n' "$ts" "$message" >> "$sf"
+}
+
+# Check if any sessions depend on the given session number and print notifications
+check_dependents() {
+  local sf="$1" num="$2" new_status="$3"
+  local lines
+  lines=$(sed -n '/^## Active Sessions/,/^## [^A]/p' "$sf" | \
+    grep -v '^|[-]' | grep -v 'Persona' | grep '^|')
+  if [[ -z "$lines" ]]; then return 0; fi
+  echo "$lines" | while IFS= read -r line; do
+    local dep dep_num dep_persona
+    dep=$(echo "$line" | awk -F'|' '{gsub(/^ +| +$/, "", $8); print $8}')
+    if echo "$dep" | grep -qE "(^|[^0-9])#?${num}([^0-9]|$)"; then
+      dep_num=$(echo "$line" | awk -F'|' '{gsub(/^ +| +$/, "", $2); print $2}')
+      dep_persona=$(echo "$line" | awk -F'|' '{gsub(/^ +| +$/, "", $3); print $3}')
+      if [[ "$new_status" == "done" || "$new_status" == "merged" ]]; then
+        echo "  $(green "→") Session #${dep_num} (${dep_persona}) is unblocked."
+      elif [[ "$new_status" == "abandoned" ]]; then
+        echo "  $(yellow "!") Session #${dep_num} (${dep_persona}) depends on #${num} which was abandoned."
+      fi
+    fi
+  done
+}
+
+# Current timestamp
+now_timestamp() { date "+%Y-%m-%d %H:%M"; }
+
+# Convert timestamp to epoch seconds (macOS/Linux compatible)
+timestamp_to_epoch() {
+  local ts="$1"
+  if date -j -f "%Y-%m-%d %H:%M" "$ts" "+%s" 2>/dev/null; then
+    return 0
+  fi
+  date -d "$ts" "+%s" 2>/dev/null
+}
+
+# Format duration from seconds
+format_duration() {
+  local secs="$1"
+  if (( secs < 0 )); then secs=0; fi
+  local days=$((secs / 86400))
+  local hours=$(( (secs % 86400) / 3600 ))
+  local mins=$(( (secs % 3600) / 60 ))
+  if (( days > 0 )); then
+    echo "${days}d ${hours}h"
+  elif (( hours > 0 )); then
+    echo "${hours}h ${mins}m"
+  else
+    echo "${mins}m"
+  fi
+}
+
 # Show status
 cmd_status() {
   local sf
@@ -192,6 +335,311 @@ EOF
   echo ""
 }
 
+# Register new sessions interactively
+cmd_start() {
+  local sf
+  sf="$(check_sessions)"
+  local count="${1:-1}"
+
+  if ! [[ "$count" =~ ^[0-9]+$ ]] || (( count < 1 )); then
+    echo "$(red "Error:") count must be a positive integer."
+    exit 1
+  fi
+
+  echo ""
+  echo "$(bold "Register Sessions")"
+  echo "────────────────────────────────────"
+
+  local i
+  for (( i=1; i<=count; i++ )); do
+    local num
+    num=$(next_session_number "$sf")
+
+    if (( count > 1 )); then
+      echo ""
+      echo "$(bold "Session $i of $count") (will be #${num})"
+    else
+      echo ""
+      echo "Registering session #${num}:"
+    fi
+
+    local persona task files depends notes
+    printf "  Persona: "
+    read -r persona
+    printf "  Task: "
+    read -r task
+    printf "  Files: "
+    read -r files
+    printf "  Depends on (e.g. #1, or blank): "
+    read -r depends
+    depends="${depends:-}"
+
+    local ts
+    ts=$(now_timestamp)
+    local row="| ${num} | ${persona} | ${task} | ${files} | planning | ${ts} | ${depends} | |"
+    insert_active_row "$sf" "$row"
+    append_log "$sf" "Session #${num} registered: ${persona} — ${task}"
+
+    echo "  $(green "✓") Session #${num} registered ($(status_icon planning) planning)"
+  done
+
+  echo ""
+}
+
+# Update a session's status
+cmd_update() {
+  local sf
+  sf="$(check_sessions)"
+
+  local num="${1:-}"
+  local new_status="${2:-}"
+
+  if [[ -z "$num" || -z "$new_status" ]]; then
+    echo "$(red "Usage:") claude-conductor update <#> <status>"
+    echo "  Valid statuses: planning, coding, reviewing, blocked, done, merged, abandoned"
+    exit 1
+  fi
+
+  if ! session_exists "$sf" "$num"; then
+    echo "$(red "Error:") Session #${num} not found in Active Sessions."
+    exit 1
+  fi
+
+  if ! validate_status "$new_status"; then
+    echo "$(red "Error:") Invalid status '${new_status}'."
+    echo "  Valid statuses: planning, coding, reviewing, blocked, done, merged, abandoned"
+    exit 1
+  fi
+
+  update_session_field "$sf" "$num" 6 "$new_status"
+  append_log "$sf" "Session #${num} status changed to ${new_status}"
+
+  echo ""
+  echo "$(green "✓") Session #${num} updated to $(status_icon "$new_status") ${new_status}"
+  check_dependents "$sf" "$num" "$new_status"
+  echo ""
+}
+
+# Mark a session as done
+cmd_done() {
+  local sf
+  sf="$(check_sessions)"
+
+  local num="${1:-}"
+  if [[ -z "$num" ]]; then
+    echo "$(red "Usage:") claude-conductor done <#>"
+    exit 1
+  fi
+
+  if ! session_exists "$sf" "$num"; then
+    echo "$(red "Error:") Session #${num} not found in Active Sessions."
+    exit 1
+  fi
+
+  update_session_field "$sf" "$num" 6 "done"
+  append_log "$sf" "Session #${num} marked done"
+
+  echo ""
+  echo "$(green "✓") Session #${num} marked $(status_icon done) done"
+  check_dependents "$sf" "$num" "done"
+  echo ""
+}
+
+# Mark a session as merged
+cmd_merge() {
+  local sf
+  sf="$(check_sessions)"
+
+  local num="${1:-}"
+  if [[ -z "$num" ]]; then
+    echo "$(red "Usage:") claude-conductor merge <#>"
+    exit 1
+  fi
+
+  if ! session_exists "$sf" "$num"; then
+    echo "$(red "Error:") Session #${num} not found in Active Sessions."
+    exit 1
+  fi
+
+  update_session_field "$sf" "$num" 6 "merged"
+  append_log "$sf" "Session #${num} marked merged"
+
+  echo ""
+  echo "$(green "✓") Session #${num} marked $(status_icon merged) merged"
+  echo ""
+}
+
+# Mark a session as abandoned
+cmd_abandon() {
+  local sf
+  sf="$(check_sessions)"
+
+  local num="${1:-}"
+  if [[ -z "$num" ]]; then
+    echo "$(red "Usage:") claude-conductor abandon <#> [reason]"
+    exit 1
+  fi
+
+  if ! session_exists "$sf" "$num"; then
+    echo "$(red "Error:") Session #${num} not found in Active Sessions."
+    exit 1
+  fi
+
+  shift
+  local reason="$*"
+
+  update_session_field "$sf" "$num" 6 "abandoned"
+  if [[ -n "$reason" ]]; then
+    update_session_field "$sf" "$num" 9 "$reason"
+  fi
+  append_log "$sf" "Session #${num} abandoned${reason:+: $reason}"
+
+  echo ""
+  echo "$(green "✓") Session #${num} marked $(status_icon abandoned) abandoned${reason:+ — $reason}"
+  check_dependents "$sf" "$num" "abandoned"
+  echo ""
+}
+
+# Archive completed sessions and reset
+cmd_clear() {
+  local sf
+  sf="$(check_sessions)"
+
+  # Collect rows to archive (done, merged, or abandoned)
+  local -a to_clear=()
+  local -a to_keep=()
+
+  while IFS= read -r line; do
+    if [[ "$line" == "|"* && "$line" != *"---"* && "$line" != *"Persona"* ]]; then
+      local row_status
+      row_status=$(echo "$line" | awk -F'|' '{gsub(/^ +| +$/, "", $6); print $6}')
+      if [[ "$row_status" == "done" || "$row_status" == "merged" || "$row_status" == "abandoned" ]]; then
+        to_clear+=("$line")
+      else
+        to_keep+=("$line")
+      fi
+    fi
+  done < <(sed -n '/^## Active Sessions/,/^## [^A]/p' "$sf")
+
+  if [[ ${#to_clear[@]} -eq 0 ]]; then
+    echo ""
+    echo "$(dim "No sessions to archive.")"
+    echo ""
+    exit 0
+  fi
+
+  local now_ts
+  now_ts=$(now_timestamp)
+  local now_epoch
+  now_epoch=$(timestamp_to_epoch "$now_ts")
+
+  # Build completed rows and insert them
+  local cleared_count=0
+  for row in "${to_clear[@]}"; do
+    local c_num c_persona c_task c_files c_status c_started
+    c_num=$(echo "$row" | awk -F'|' '{gsub(/^ +| +$/, "", $2); print $2}')
+    c_persona=$(echo "$row" | awk -F'|' '{gsub(/^ +| +$/, "", $3); print $3}')
+    c_task=$(echo "$row" | awk -F'|' '{gsub(/^ +| +$/, "", $4); print $4}')
+    c_files=$(echo "$row" | awk -F'|' '{gsub(/^ +| +$/, "", $5); print $5}')
+    c_status=$(echo "$row" | awk -F'|' '{gsub(/^ +| +$/, "", $6); print $6}')
+    c_started=$(echo "$row" | awk -F'|' '{gsub(/^ +| +$/, "", $7); print $7}')
+
+    # Calculate duration
+    local duration="—"
+    local start_epoch
+    start_epoch=$(timestamp_to_epoch "$c_started" 2>/dev/null) || true
+    if [[ -n "$start_epoch" && -n "$now_epoch" ]]; then
+      local diff=$((now_epoch - start_epoch))
+      duration=$(format_duration "$diff")
+    fi
+
+    local completed_row="| ${c_num} | ${c_persona} | ${c_task} | ${c_files} | ${duration} | ${now_ts} | ${c_status} |"
+    insert_completed_row "$sf" "$completed_row"
+    cleared_count=$((cleared_count + 1))
+  done
+
+  # Remove cleared rows from Active Sessions table
+  # Build a temp file without the cleared rows
+  local tmp="${sf}.tmp"
+  local in_active=0
+  while IFS= read -r line; do
+    if [[ "$line" == *"## Active Sessions"* ]]; then
+      in_active=1
+      echo "$line"
+      continue
+    fi
+    if [[ $in_active -eq 1 && "$line" == "## "* && "$line" != *"Active Sessions"* ]]; then
+      in_active=0
+      echo "$line"
+      continue
+    fi
+    if [[ $in_active -eq 1 && "$line" == "|"* && "$line" != *"---"* && "$line" != *"Persona"* ]]; then
+      local row_status
+      row_status=$(echo "$line" | awk -F'|' '{gsub(/^ +| +$/, "", $6); print $6}')
+      if [[ "$row_status" == "done" || "$row_status" == "merged" || "$row_status" == "abandoned" ]]; then
+        continue  # skip cleared rows
+      fi
+    fi
+    echo "$line"
+  done < "$sf" > "$tmp"
+  mv "$tmp" "$sf"
+
+  # Renumber remaining active sessions
+  if [[ ${#to_keep[@]} -gt 0 ]]; then
+    # Build old-to-new number mapping
+    local -a old_nums=()
+    local new_num=1
+    for row in "${to_keep[@]}"; do
+      local old_num
+      old_num=$(echo "$row" | awk -F'|' '{gsub(/^ +| +$/, "", $2); print $2}')
+      old_nums+=("$old_num")
+    done
+
+    # Apply renumbering with awk
+    local tmp2="${sf}.tmp"
+    local in_active2=0
+    local row_idx=0
+    while IFS= read -r line; do
+      if [[ "$line" == *"## Active Sessions"* ]]; then
+        in_active2=1
+        echo "$line"
+        continue
+      fi
+      if [[ $in_active2 -eq 1 && "$line" == "## "* && "$line" != *"Active Sessions"* ]]; then
+        in_active2=0
+        echo "$line"
+        continue
+      fi
+      if [[ $in_active2 -eq 1 && "$line" == "|"* && "$line" != *"---"* && "$line" != *"Persona"* ]]; then
+        new_num=$((row_idx + 1))
+        # Replace session number (field 2)
+        line=$(echo "$line" | awk -F'|' -v OFS='|' -v n="$new_num" '{$2 = " " n " "; print}')
+        # Update Depends On references
+        local k
+        for (( k=0; k<${#old_nums[@]}; k++ )); do
+          local old="${old_nums[$k]}"
+          local new=$((k + 1))
+          if [[ "$old" != "$new" ]]; then
+            line=$(echo "$line" | sed "s/#${old}/#${new}/g")
+          fi
+        done
+        row_idx=$((row_idx + 1))
+      fi
+      echo "$line"
+    done < "$sf" > "$tmp2"
+    mv "$tmp2" "$sf"
+  fi
+
+  append_log "$sf" "Archived ${cleared_count} session(s)"
+
+  echo ""
+  echo "$(green "✓") Archived ${cleared_count} session(s) to Completed Sessions."
+  if [[ ${#to_keep[@]} -gt 0 ]]; then
+    echo "  ${#to_keep[@]} session(s) remain active (renumbered)."
+  fi
+  echo ""
+}
+
 # Help
 cmd_help() {
   echo ""
@@ -202,20 +650,20 @@ cmd_help() {
   echo ""
   echo "$(bold "Commands:")"
   echo "  status              Show all active sessions $(dim "(default)")"
+  echo "  start [count]       Register new session(s) interactively"
+  echo "  update <#> <status> Update a session's status"
+  echo "  done <#>            Mark a session complete"
+  echo "  merge <#>           Mark a session as merged"
+  echo "  abandon <#> [reason] Mark a session as abandoned"
+  echo "  clear               Archive completed sessions"
   echo "  init                Create SESSIONS.md in the current project"
   echo "  help                Show this help message"
   echo ""
-  echo "$(bold "In-session commands") $(dim "(use these in Claude Code)"):"
-  echo "  /conductor          Show session status"
-  echo "  /conductor start    Register sessions from /parallel output"
-  echo "  /conductor update   Update a session's status"
-  echo "  /conductor done     Mark a session complete"
-  echo "  /conductor merge    Mark a session as merged"
-  echo "  /conductor abandon  Mark a session as abandoned"
-  echo "  /conductor plan     Generate /parallel plan and auto-register"
-  echo "  /conductor clear    Archive completed sessions"
-  echo ""
-  echo "  /sessions           Alias for /conductor"
+  echo "$(bold "Aliases:")"
+  echo "  s                   status"
+  echo "  u                   update"
+  echo "  d                   done"
+  echo "  m                   merge"
   echo ""
   echo "$(bold "Statuses:")"
   echo "  📋 planning    Session in plan mode"
@@ -233,8 +681,14 @@ cmd="${1:-status}"
 shift 2>/dev/null || true
 
 case "$cmd" in
-  status|s)     cmd_status "$@" ;;
-  init)         cmd_init "$@" ;;
+  status|s)       cmd_status "$@" ;;
+  init)           cmd_init "$@" ;;
+  start)          cmd_start "$@" ;;
+  update|u)       cmd_update "$@" ;;
+  done|d)         cmd_done "$@" ;;
+  merge|m)        cmd_merge "$@" ;;
+  abandon)        cmd_abandon "$@" ;;
+  clear)          cmd_clear "$@" ;;
   help|--help|-h) cmd_help ;;
   *)
     echo "$(red "Unknown command:") $cmd"
