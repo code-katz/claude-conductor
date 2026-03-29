@@ -199,10 +199,12 @@ for (( i=0; i<active_count; i++ )); do
   activity_html=""
   if [[ -n "$activity" && "$activity" != " " ]]; then
     urgent_class=""
-    if [[ "$activity" == *"needs response"* ]]; then
+    activity_icon=""
+    if [[ "$activity" == *"needs response"* || "$activity" == *"needs input"* || "$activity" == *"waiting for approval"* || "$activity" == *"needs acceptance"* ]]; then
       urgent_class=" card-activity--urgent"
+      activity_icon="<span class=\"activity-beacon\">&#x25B6;</span> "
     fi
-    activity_html="<div class=\"card-activity${urgent_class}\">$(html_escape "$activity")</div>"
+    activity_html="<div class=\"card-activity${urgent_class}\">${activity_icon}$(html_escape "$activity")</div>"
   fi
 
   session_cards_html+="
