@@ -465,6 +465,568 @@ else
   fail=$((fail + 1))
 fi
 
+"$CLI" merge 1 >/dev/null 2>&1
+
+total=$((total + 1))
+if grep -q "marked merged" SESSIONS.md; then
+  echo "  $(green "✓") merge appends to Session Log"
+  pass=$((pass + 1))
+else
+  echo "  $(red "✗") merge should append to Session Log"
+  fail=$((fail + 1))
+fi
+
+# Reset for abandon log test
+cat > SESSIONS.md << 'EOF'
+# TestProject — Session Conductor
+
+---
+
+## Active Sessions
+
+| # | Persona | Task | Files | Status | Started | Depends On | Notes |
+|---|---------|------|-------|--------|---------|------------|-------|
+| 1 | Akira | Build API | src/api/ | coding | 2026-03-28 14:00 | | |
+
+## Merge Order
+
+No dependencies defined.
+
+## Completed Sessions
+
+| # | Persona | Task | Files | Duration | Completed | Outcome |
+|---|---------|------|-------|----------|-----------|---------|
+
+## Session Log
+EOF
+
+"$CLI" abandon 1 "no longer needed" >/dev/null 2>&1
+
+total=$((total + 1))
+if grep -q "abandoned.*no longer needed" SESSIONS.md; then
+  echo "  $(green "✓") abandon appends to Session Log with reason"
+  pass=$((pass + 1))
+else
+  echo "  $(red "✗") abandon should append to Session Log with reason"
+  fail=$((fail + 1))
+fi
+
+# Reset for clear log test
+cat > SESSIONS.md << 'EOF'
+# TestProject — Session Conductor
+
+---
+
+## Active Sessions
+
+| # | Persona | Task | Files | Status | Started | Depends On | Notes |
+|---|---------|------|-------|--------|---------|------------|-------|
+| 1 | Akira | Build API | src/api/ | done | 2026-03-28 14:00 | | |
+
+## Merge Order
+
+No dependencies defined.
+
+## Completed Sessions
+
+| # | Persona | Task | Files | Duration | Completed | Outcome |
+|---|---------|------|-------|----------|-----------|---------|
+
+## Session Log
+EOF
+
+"$CLI" clear >/dev/null 2>&1
+
+total=$((total + 1))
+if grep -q "Archived.*session" SESSIONS.md; then
+  echo "  $(green "✓") clear appends to Session Log"
+  pass=$((pass + 1))
+else
+  echo "  $(red "✗") clear should append to Session Log"
+  fail=$((fail + 1))
+fi
+
+echo ""
+
+# --- Dependency tracking ---
+echo "$(bold "Dependency tracking")"
+
+# Session with multiple dependencies
+cat > SESSIONS.md << 'EOF'
+# TestProject — Session Conductor
+
+---
+
+## Active Sessions
+
+| # | Persona | Task | Files | Status | Started | Depends On | Notes |
+|---|---------|------|-------|--------|---------|------------|-------|
+| 1 | Akira | Build API | src/api/ | coding | 2026-03-28 14:00 | | |
+| 2 | Robin | Write tests | tests/ | coding | 2026-03-28 14:00 | | |
+| 3 | Sasha | Build UI | src/ui/ | blocked | 2026-03-28 14:00 | #1, #2 | |
+
+## Merge Order
+
+#1, #2 → #3
+
+## Completed Sessions
+
+| # | Persona | Task | Files | Duration | Completed | Outcome |
+|---|---------|------|-------|----------|-----------|---------|
+
+## Session Log
+EOF
+
+# Completing #1 should unblock #3
+assert_output_contains "done on #1 unblocks session with multiple deps" "unblocked" "$CLI" done 1
+
+# Session with no dependents should show no unblock message
+cat > SESSIONS.md << 'EOF'
+# TestProject — Session Conductor
+
+---
+
+## Active Sessions
+
+| # | Persona | Task | Files | Status | Started | Depends On | Notes |
+|---|---------|------|-------|--------|---------|------------|-------|
+| 1 | Akira | Build API | src/api/ | coding | 2026-03-28 14:00 | | |
+| 2 | Sasha | Build UI | src/ui/ | coding | 2026-03-28 14:00 | | |
+
+## Merge Order
+
+No dependencies defined.
+
+## Completed Sessions
+
+| # | Persona | Task | Files | Duration | Completed | Outcome |
+|---|---------|------|-------|----------|-----------|---------|
+
+## Session Log
+EOF
+
+# Done on #1 with no dependents should not mention "unblocked"
+total=$((total + 1))
+output=$("$CLI" done 1 2>&1) || true
+if echo "$output" | grep -qF "unblocked"; then
+  echo "  $(red "✗") done with no dependents should not show unblock message"
+  fail=$((fail + 1))
+else
+  echo "  $(green "✓") done with no dependents shows no unblock message"
+  pass=$((pass + 1))
+fi
+
+echo ""
+
+# --- Clear: renumbering ---
+echo "$(bold "Clear renumbering")"
+
+# Setup: 3 sessions, clear #1 and #3, verify #2 becomes #1
+cat > SESSIONS.md << 'EOF'
+# TestProject — Session Conductor
+
+---
+
+## Active Sessions
+
+| # | Persona | Task | Files | Status | Started | Depends On | Notes |
+|---|---------|------|-------|--------|---------|------------|-------|
+| 1 | Akira | Build API | src/api/ | merged | 2026-03-28 14:00 | | |
+| 2 | Sasha | Build UI | src/ui/ | coding | 2026-03-28 14:00 | | |
+| 3 | Robin | Write tests | tests/ | done | 2026-03-28 14:00 | | |
+
+## Merge Order
+
+No dependencies defined.
+
+## Completed Sessions
+
+| # | Persona | Task | Files | Duration | Completed | Outcome |
+|---|---------|------|-------|----------|-----------|---------|
+
+## Session Log
+EOF
+
+"$CLI" clear >/dev/null 2>&1
+
+# Sasha (was #2) should now be #1
+total=$((total + 1))
+if sed -n '/^## Active Sessions/,/^## [^A]/p' SESSIONS.md | grep -q "| 1 | Sasha"; then
+  echo "  $(green "✓") clear renumbers remaining sessions (Sasha #2 → #1)"
+  pass=$((pass + 1))
+else
+  echo "  $(red "✗") clear should renumber remaining sessions"
+  fail=$((fail + 1))
+fi
+
+# Test renumbering updates Depends On references
+cat > SESSIONS.md << 'EOF'
+# TestProject — Session Conductor
+
+---
+
+## Active Sessions
+
+| # | Persona | Task | Files | Status | Started | Depends On | Notes |
+|---|---------|------|-------|--------|---------|------------|-------|
+| 1 | Akira | Build API | src/api/ | done | 2026-03-28 14:00 | | |
+| 2 | Sasha | Build UI | src/ui/ | coding | 2026-03-28 14:00 | | |
+| 3 | Robin | Write tests | tests/ | blocked | 2026-03-28 14:00 | #2 | |
+
+## Merge Order
+
+#2 → #3
+
+## Completed Sessions
+
+| # | Persona | Task | Files | Duration | Completed | Outcome |
+|---|---------|------|-------|----------|-----------|---------|
+
+## Session Log
+EOF
+
+"$CLI" clear >/dev/null 2>&1
+
+# Robin's dependency should update from #2 to #1
+total=$((total + 1))
+if sed -n '/^## Active Sessions/,/^## [^A]/p' SESSIONS.md | grep "Robin" | grep -q "#1"; then
+  echo "  $(green "✓") clear updates Depends On references after renumber"
+  pass=$((pass + 1))
+else
+  echo "  $(red "✗") clear should update Depends On references after renumber"
+  fail=$((fail + 1))
+fi
+
+echo ""
+
+# --- Clear: Completed table ---
+echo "$(bold "Clear: Completed table")"
+
+cat > SESSIONS.md << 'EOF'
+# TestProject — Session Conductor
+
+---
+
+## Active Sessions
+
+| # | Persona | Task | Files | Status | Started | Depends On | Notes |
+|---|---------|------|-------|--------|---------|------------|-------|
+| 1 | Akira | Build API | src/api/ | done | 2026-03-28 14:00 | | |
+| 2 | Robin | Write tests | tests/ | abandoned | 2026-03-28 15:00 | | |
+
+## Merge Order
+
+No dependencies defined.
+
+## Completed Sessions
+
+| # | Persona | Task | Files | Duration | Completed | Outcome |
+|---|---------|------|-------|----------|-----------|---------|
+
+## Session Log
+EOF
+
+"$CLI" clear >/dev/null 2>&1
+
+# Verify rows landed in Completed Sessions
+total=$((total + 1))
+if sed -n '/^## Completed Sessions/,/^## [^C]/p' SESSIONS.md | grep -q "Akira"; then
+  echo "  $(green "✓") clear moves Akira to Completed Sessions"
+  pass=$((pass + 1))
+else
+  echo "  $(red "✗") clear should move Akira to Completed Sessions"
+  fail=$((fail + 1))
+fi
+
+total=$((total + 1))
+if sed -n '/^## Completed Sessions/,/^## [^C]/p' SESSIONS.md | grep -q "Robin"; then
+  echo "  $(green "✓") clear moves Robin to Completed Sessions"
+  pass=$((pass + 1))
+else
+  echo "  $(red "✗") clear should move Robin to Completed Sessions"
+  fail=$((fail + 1))
+fi
+
+# Verify outcome column contains the status
+total=$((total + 1))
+if sed -n '/^## Completed Sessions/,/^## [^C]/p' SESSIONS.md | grep "Akira" | grep -q "done"; then
+  echo "  $(green "✓") Completed row has correct outcome (done)"
+  pass=$((pass + 1))
+else
+  echo "  $(red "✗") Completed row should have outcome (done)"
+  fail=$((fail + 1))
+fi
+
+total=$((total + 1))
+if sed -n '/^## Completed Sessions/,/^## [^C]/p' SESSIONS.md | grep "Robin" | grep -q "abandoned"; then
+  echo "  $(green "✓") Completed row has correct outcome (abandoned)"
+  pass=$((pass + 1))
+else
+  echo "  $(red "✗") Completed row should have outcome (abandoned)"
+  fail=$((fail + 1))
+fi
+
+# Verify duration column is populated (not empty or just dashes)
+total=$((total + 1))
+duration_val=$(sed -n '/^## Completed Sessions/,/^## [^C]/p' SESSIONS.md | grep "Akira" | awk -F'|' '{gsub(/^ +| +$/, "", $6); print $6}')
+if [[ -n "$duration_val" && "$duration_val" != "—" && "$duration_val" != "-" ]]; then
+  echo "  $(green "✓") Completed row has calculated duration ($duration_val)"
+  pass=$((pass + 1))
+else
+  echo "  $(red "✗") Completed row should have calculated duration (got: '$duration_val')"
+  fail=$((fail + 1))
+fi
+
+# Verify Active Sessions table is now empty
+total=$((total + 1))
+active_data=$(sed -n '/^## Active Sessions/,/^## [^A]/p' SESSIONS.md | { grep '^|[^-]' || true; } | { grep -v 'Persona' || true; } | wc -l | tr -d ' ')
+if [[ "$active_data" -eq 0 ]]; then
+  echo "  $(green "✓") Active Sessions table is empty after full clear"
+  pass=$((pass + 1))
+else
+  echo "  $(red "✗") Active Sessions table should be empty after full clear ($active_data rows remain)"
+  fail=$((fail + 1))
+fi
+
+echo ""
+
+# --- Start command ---
+echo "$(bold "Start")"
+
+# Reset with empty SESSIONS.md
+cat > SESSIONS.md << 'EOF'
+# TestProject — Session Conductor
+
+---
+
+## Active Sessions
+
+| # | Persona | Task | Files | Status | Started | Depends On | Notes |
+|---|---------|------|-------|--------|---------|------------|-------|
+
+## Merge Order
+
+No dependencies defined.
+
+## Completed Sessions
+
+| # | Persona | Task | Files | Duration | Completed | Outcome |
+|---|---------|------|-------|----------|-----------|---------|
+
+## Session Log
+EOF
+
+# Pipe stdin for interactive prompts: persona, task, files, depends
+printf 'Akira\nBuild API\nsrc/api/\n\n' | "$CLI" start >/dev/null 2>&1
+
+total=$((total + 1))
+if sed -n '/^## Active Sessions/,/^## [^A]/p' SESSIONS.md | grep -q "Akira"; then
+  echo "  $(green "✓") start registers session from stdin"
+  pass=$((pass + 1))
+else
+  echo "  $(red "✗") start should register session from stdin"
+  fail=$((fail + 1))
+fi
+
+total=$((total + 1))
+if sed -n '/^## Active Sessions/,/^## [^A]/p' SESSIONS.md | grep "Akira" | grep -q "planning"; then
+  echo "  $(green "✓") start sets initial status to planning"
+  pass=$((pass + 1))
+else
+  echo "  $(red "✗") start should set initial status to planning"
+  fail=$((fail + 1))
+fi
+
+total=$((total + 1))
+if grep -q "registered.*Akira" SESSIONS.md; then
+  echo "  $(green "✓") start appends to Session Log"
+  pass=$((pass + 1))
+else
+  echo "  $(red "✗") start should append to Session Log"
+  fail=$((fail + 1))
+fi
+
+# Register a second session and verify numbering
+printf 'Sasha\nBuild UI\nsrc/ui/\n#1\n' | "$CLI" start >/dev/null 2>&1
+
+total=$((total + 1))
+if sed -n '/^## Active Sessions/,/^## [^A]/p' SESSIONS.md | grep -q "| 2 | Sasha"; then
+  echo "  $(green "✓") start auto-increments session number"
+  pass=$((pass + 1))
+else
+  echo "  $(red "✗") start should auto-increment session number"
+  fail=$((fail + 1))
+fi
+
+# Test start with count argument
+printf 'Robin\nTest suite\ntests/\n\nMorgan\nSecurity audit\nsrc/auth/\n\n' | "$CLI" start 2 >/dev/null 2>&1
+
+total=$((total + 1))
+active_count=$(sed -n '/^## Active Sessions/,/^## [^A]/p' SESSIONS.md | { grep '^|[^-]' || true; } | { grep -v 'Persona' || true; } | wc -l | tr -d ' ')
+if [[ "$active_count" -eq 4 ]]; then
+  echo "  $(green "✓") start with count registers multiple sessions (4 total)"
+  pass=$((pass + 1))
+else
+  echo "  $(red "✗") start with count should register multiple sessions (expected 4, got $active_count)"
+  fail=$((fail + 1))
+fi
+
+# Test start with invalid count
+assert_exit "start with invalid count exits 1" 1 "$CLI" start abc
+
+echo ""
+
+# --- Aliases ---
+echo "$(bold "Aliases")"
+
+cat > SESSIONS.md << 'EOF'
+# TestProject — Session Conductor
+
+---
+
+## Active Sessions
+
+| # | Persona | Task | Files | Status | Started | Depends On | Notes |
+|---|---------|------|-------|--------|---------|------------|-------|
+| 1 | Akira | Build API | src/api/ | planning | 2026-03-28 14:00 | | |
+
+## Merge Order
+
+No dependencies defined.
+
+## Completed Sessions
+
+| # | Persona | Task | Files | Duration | Completed | Outcome |
+|---|---------|------|-------|----------|-----------|---------|
+
+## Session Log
+EOF
+
+assert_exit "alias 's' works for status" 0 "$CLI" s
+assert_exit "alias 'u' works for update" 0 "$CLI" u 1 coding
+assert_exit "alias 'd' works for done" 0 "$CLI" d 1
+assert_exit "alias 'm' works for merge" 0 "$CLI" m 1
+
+echo ""
+
+# --- Chain operations ---
+echo "$(bold "Chain operations")"
+
+cat > SESSIONS.md << 'EOF'
+# TestProject — Session Conductor
+
+---
+
+## Active Sessions
+
+| # | Persona | Task | Files | Status | Started | Depends On | Notes |
+|---|---------|------|-------|--------|---------|------------|-------|
+| 1 | Akira | Build API | src/api/ | planning | 2026-03-28 14:00 | | |
+
+## Merge Order
+
+No dependencies defined.
+
+## Completed Sessions
+
+| # | Persona | Task | Files | Duration | Completed | Outcome |
+|---|---------|------|-------|----------|-----------|---------|
+
+## Session Log
+EOF
+
+"$CLI" update 1 coding >/dev/null 2>&1
+"$CLI" update 1 reviewing >/dev/null 2>&1
+"$CLI" done 1 >/dev/null 2>&1
+"$CLI" merge 1 >/dev/null 2>&1
+
+total=$((total + 1))
+if grep -q "| 1 |.*| merged |" SESSIONS.md; then
+  echo "  $(green "✓") chain: planning → coding → reviewing → done → merged"
+  pass=$((pass + 1))
+else
+  echo "  $(red "✗") chain should end with merged status"
+  fail=$((fail + 1))
+fi
+
+# Verify all transitions logged
+total=$((total + 1))
+log_count=$(grep -c "^### \[" SESSIONS.md || true)
+if [[ "$log_count" -ge 4 ]]; then
+  echo "  $(green "✓") chain: all $log_count transitions logged"
+  pass=$((pass + 1))
+else
+  echo "  $(red "✗") chain should log all transitions (expected >=4, got $log_count)"
+  fail=$((fail + 1))
+fi
+
+echo ""
+
+# --- Field preservation ---
+echo "$(bold "Field preservation")"
+
+cat > SESSIONS.md << 'EOF'
+# TestProject — Session Conductor
+
+---
+
+## Active Sessions
+
+| # | Persona | Task | Files | Status | Started | Depends On | Notes |
+|---|---------|------|-------|--------|---------|------------|-------|
+| 1 | Akira | Build the API endpoints | src/api/routers/ | planning | 2026-03-28 14:00 | #2 | Important session |
+
+## Merge Order
+
+No dependencies defined.
+
+## Completed Sessions
+
+| # | Persona | Task | Files | Duration | Completed | Outcome |
+|---|---------|------|-------|----------|-----------|---------|
+
+## Session Log
+EOF
+
+"$CLI" update 1 coding >/dev/null 2>&1
+
+# Verify other fields survived the update
+total=$((total + 1))
+if grep -q "Build the API endpoints" SESSIONS.md; then
+  echo "  $(green "✓") update preserves Task field"
+  pass=$((pass + 1))
+else
+  echo "  $(red "✗") update should preserve Task field"
+  fail=$((fail + 1))
+fi
+
+total=$((total + 1))
+if grep -q "src/api/routers/" SESSIONS.md; then
+  echo "  $(green "✓") update preserves Files field"
+  pass=$((pass + 1))
+else
+  echo "  $(red "✗") update should preserve Files field"
+  fail=$((fail + 1))
+fi
+
+total=$((total + 1))
+if sed -n '/^## Active Sessions/,/^## [^A]/p' SESSIONS.md | grep "Akira" | grep -q "#2"; then
+  echo "  $(green "✓") update preserves Depends On field"
+  pass=$((pass + 1))
+else
+  echo "  $(red "✗") update should preserve Depends On field"
+  fail=$((fail + 1))
+fi
+
+total=$((total + 1))
+if grep -q "Important session" SESSIONS.md; then
+  echo "  $(green "✓") update preserves Notes field"
+  pass=$((pass + 1))
+else
+  echo "  $(red "✗") update should preserve Notes field"
+  fail=$((fail + 1))
+fi
+
 echo ""
 
 # --- Results ---
