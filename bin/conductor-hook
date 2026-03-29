@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# conductor-hook — Called by Claude Code PostToolUse hook on Edit/Write
+# Finds the first "planning" session in SESSIONS.md and updates it to "coding"
+# Only fires once per session (uses a PID-based marker file)
+
+set -euo pipefail
+
+# Find SESSIONS.md
+find_sessions() {
+  local dir="${CLAUDE_PROJECT_DIR:-$PWD}"
+  while [[ "$dir" != "/" ]]; do
+    if [[ -f "$dir/SESSIONS.md" ]]; then
+      echo "$dir/SESSIONS.md"
+      return 0
+    fi
+    dir="$(dirname "$dir")"
+  done
+  return 1
+}
+
+sf=$(find_sessions 2>/dev/null) || exit 0
+
+# One-shot: only fire once per Claude Code process
+marker="/tmp/.conductor-hook-$$"
+if [[ -f "$marker" ]]; then
+  exit 0
+fi
+touch "$marker"
+
+# Find the first session still in "planning" and update it to "coding"
+first_planning=$(sed -n '/^## Active Sessions/,/^## [^A]/p' "$sf" | \
+  grep '| planning |' | head -1 | \
+  awk -F'|' '{gsub(/^ +| +$/, "", $2); print $2}')
+
+if [[ -n "$first_planning" ]]; then
+  claude-conductor u "$first_planning" coding --activity "writing code" >/dev/null 2>&1 || true
+fi
+
+exit 0

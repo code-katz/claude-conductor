@@ -613,9 +613,20 @@ cmd_update() {
     exit 1
   fi
 
-  update_session_field "$sf" "$num" 6 "$new_status"
   if [[ -n "$activity" ]]; then
-    update_session_field "$sf" "$num" 10 "$activity"
+    # Update both status and activity in one pass to avoid race conditions
+    local tmp="${sf}.tmp"
+    awk -F'|' -v OFS='|' -v num="$num" -v status="$new_status" -v act="$activity" '
+      /^## Active Sessions/ { in_active=1 }
+      /^## [^A]/ && in_active { in_active=0 }
+      in_active && /^\|/ && $2 ~ "^ *"num" *$" {
+        $6 = " " status " "
+        $10 = " " act " "
+      }
+      { print }
+    ' "$sf" > "$tmp" && mv "$tmp" "$sf"
+  else
+    update_session_field "$sf" "$num" 6 "$new_status"
   fi
   append_log "$sf" "Session #${num} status changed to ${new_status}${activity:+ ($activity)}"
 
