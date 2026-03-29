@@ -391,6 +391,10 @@ Auto-maintained via [claude-conductor](https://github.com/code-katz/claude-condu
 
 ---
 
+## Plan
+
+No plan defined. Run \`/parallel\` to generate a plan, or \`claude-conductor add\` to register sessions.
+
 ## Active Sessions
 
 | # | Persona | Task | Files | Status | Started | Depends On | Notes |
@@ -468,6 +472,112 @@ cmd_start() {
   echo ""
 }
 
+# Append a checklist item to the Plan section
+append_plan_item() {
+  local sf="$1" num="$2" persona="$3" task="$4" files="$5"
+  local item="- [ ] #${num} ${persona}: ${task} (${files})"
+  local tmp="${sf}.tmp"
+  local inserted=0
+  local in_plan=0
+  while IFS= read -r line; do
+    if [[ "$line" == "## Plan" ]]; then
+      in_plan=1
+      echo "$line"
+      continue
+    fi
+    if [[ $in_plan -eq 1 && "$line" == "## "* ]]; then
+      # Insert before next section
+      if [[ $inserted -eq 0 ]]; then
+        echo "$item"
+        echo ""
+        inserted=1
+      fi
+      in_plan=0
+      echo "$line"
+      continue
+    fi
+    # Replace placeholder text if present
+    if [[ $in_plan -eq 1 && "$line" == "No plan defined."* ]]; then
+      echo "$item"
+      inserted=1
+      continue
+    fi
+    # Insert after last checklist item
+    if [[ $in_plan -eq 1 && "$line" == "- ["* ]]; then
+      echo "$line"
+      continue
+    fi
+    if [[ $in_plan -eq 1 && "$line" != "- ["* && "$line" != "" && $inserted -eq 0 ]]; then
+      echo "$item"
+      inserted=1
+      echo "$line"
+      continue
+    fi
+    echo "$line"
+  done < "$sf" > "$tmp"
+  if [[ $inserted -eq 0 ]]; then
+    echo "$item" >> "$tmp"
+  fi
+  mv "$tmp" "$sf"
+}
+
+# Toggle a plan checklist item from [ ] to [x] by session number
+toggle_plan_item() {
+  local sf="$1" num="$2"
+  local tmp="${sf}.tmp"
+  sed "s/^- \[ \] #${num} /- [x] #${num} /" "$sf" > "$tmp" && mv "$tmp" "$sf"
+}
+
+# Register a session non-interactively (for /parallel integration)
+cmd_add() {
+  local sf
+  sf="$(check_sessions)"
+
+  local persona="" task="" files="" depends=""
+
+  # Parse named flags
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --persona) persona="$2"; shift 2 ;;
+      --task)    task="$2"; shift 2 ;;
+      --files)   files="$2"; shift 2 ;;
+      --depends) depends="$2"; shift 2 ;;
+      *) shift ;;
+    esac
+  done
+
+  if [[ -z "$persona" ]]; then
+    echo "$(red "Error:") --persona is required."
+    echo "  Usage: claude-conductor add --persona <name> --task <desc> --files <paths> [--depends <#>]"
+    exit 1
+  fi
+
+  if [[ -z "$task" ]]; then
+    echo "$(red "Error:") --task is required."
+    echo "  Usage: claude-conductor add --persona <name> --task <desc> --files <paths> [--depends <#>]"
+    exit 1
+  fi
+
+  local num
+  num=$(next_session_number "$sf")
+  local ts
+  ts=$(now_timestamp)
+  local row="| ${num} | ${persona} | ${task} | ${files} | planning | ${ts} | ${depends} | |"
+  insert_active_row "$sf" "$row"
+  append_plan_item "$sf" "$num" "$persona" "$task" "$files"
+  append_log "$sf" "Session #${num} registered: ${persona} — ${task}"
+
+  maybe_regenerate_dashboard "$sf"
+
+  echo ""
+  echo "$(green "✓") Session #${num} registered: $(bold "$persona") — ${task}"
+  echo "  Files: ${files}"
+  if [[ -n "$depends" ]]; then
+    echo "  Depends on: ${depends}"
+  fi
+  echo ""
+}
+
 # Update a session's status
 cmd_update() {
   local sf
@@ -520,6 +630,7 @@ cmd_done() {
   fi
 
   update_session_field "$sf" "$num" 6 "done"
+  toggle_plan_item "$sf" "$num"
   append_log "$sf" "Session #${num} marked done"
 
   echo ""
@@ -546,6 +657,7 @@ cmd_merge() {
   fi
 
   update_session_field "$sf" "$num" 6 "merged"
+  toggle_plan_item "$sf" "$num"
   append_log "$sf" "Session #${num} marked merged"
 
   echo ""
@@ -802,6 +914,8 @@ cmd_help() {
   echo "$(bold "Commands:")"
   echo "  status              Show all active sessions $(dim "(default)")"
   echo "  start [count]       Register new session(s) interactively"
+  echo "  add --persona <name> --task <desc> --files <paths> [--depends <#>]"
+  echo "                      Register a session non-interactively"
   echo "  update <#> <status> Update a session's status"
   echo "  done <#>            Mark a session complete"
   echo "  merge <#>           Mark a session as merged"
@@ -839,6 +953,7 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     status|s)       cmd_status "$@" ;;
     init)           cmd_init "$@" ;;
     start)          cmd_start "$@" ;;
+    add)            cmd_add "$@" ;;
     update|u)       cmd_update "$@" ;;
     done|d)         cmd_done "$@" ;;
     merge|m)        cmd_merge "$@" ;;

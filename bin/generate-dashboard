@@ -100,6 +100,23 @@ while IFS= read -r line; do
   fi
 done < "$sf"
 
+# Parse Plan section (checklist items)
+plan_items=""
+in_plan=0
+while IFS= read -r line; do
+  if [[ "$line" == "## Plan" ]]; then
+    in_plan=1
+    continue
+  fi
+  if [[ $in_plan -eq 1 && "$line" == "## "* ]]; then
+    break
+  fi
+  if [[ $in_plan -eq 1 && "$line" == "- ["* ]]; then
+    plan_items+="$line
+"
+  fi
+done < "$sf"
+
 # --- Status helpers ---
 
 # Map persona name to icon URL (GitHub raw)
@@ -209,6 +226,38 @@ if [[ -n "$merge_order" ]]; then
       merge_html+="<div class=\"merge-item\">$(html_escape "$line")</div>"
     fi
   done <<< "$merge_order"
+fi
+
+# --- Generate plan card HTML (Session 0) ---
+
+plan_card_html=""
+if [[ -n "$plan_items" ]]; then
+  plan_checklist=""
+  while IFS= read -r line; do
+    if [[ -z "$line" ]]; then continue; fi
+    if [[ "$line" == "- [x]"* ]]; then
+      item_text="${line#- \[x\] }"
+      plan_checklist+="<div class=\"plan-item checked\">&#x2705; <span class=\"plan-text-done\">${item_text}</span></div>"
+    elif [[ "$line" == "- [ ]"* ]]; then
+      item_text="${line#- \[ \] }"
+      plan_checklist+="<div class=\"plan-item\">&#x2B1C; ${item_text}</div>"
+    fi
+  done <<< "$plan_items"
+
+  # Count progress
+  total_items=$(echo "$plan_items" | grep -c '^\- \[' || true)
+  done_items=$(echo "$plan_items" | grep -c '^\- \[x\]' || true)
+
+  plan_card_html="
+    <div class=\"plan-card\">
+      <div class=\"plan-header\">
+        <span class=\"plan-title\">Coordinator</span>
+        <span class=\"plan-progress\">${done_items}/${total_items} complete</span>
+      </div>
+      <div class=\"plan-body\">
+        ${plan_checklist}
+      </div>
+    </div>"
 fi
 
 # --- Generate completed sessions HTML ---
@@ -445,6 +494,48 @@ cat > "$dashboard_file" << HTMLEOF
       font-size: 0.95rem;
     }
 
+    .plan-card {
+      background: #1e1e1d;
+      border: 2px solid #d4a843;
+      border-radius: 8px;
+      margin-bottom: 24px;
+    }
+
+    .plan-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 20px;
+      background: #222221;
+      border-bottom: 1px solid #2a2a28;
+    }
+
+    .plan-title {
+      font-weight: 700;
+      font-size: 1rem;
+      color: #d4a843;
+      font-family: 'Poppins', sans-serif;
+    }
+
+    .plan-progress {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.8rem;
+      color: #b0aea5;
+    }
+
+    .plan-body { padding: 14px 20px; }
+
+    .plan-item {
+      font-size: 0.85rem;
+      padding: 4px 0;
+      color: #faf9f5;
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    .plan-item.checked { color: #7ab5b0; }
+
+    .plan-text-done { text-decoration: line-through; opacity: 0.6; }
+
     .conflict-banner {
       background: #3a2520;
       border: 1px solid #c45c4e;
@@ -473,6 +564,13 @@ cat > "$dashboard_file" << HTMLEOF
 
   <main>
 HTMLEOF
+
+# Plan card (Session 0)
+if [[ -n "$plan_card_html" ]]; then
+  cat >> "$dashboard_file" << HTMLEOF
+    ${plan_card_html}
+HTMLEOF
+fi
 
 # Active sessions section
 if (( active_count > 0 )); then

@@ -51,6 +51,12 @@ mkdir -p "$(dirname "$BIN_DST")"
 ln -sf "$BIN_SRC" "$BIN_DST"
 chmod +x "$BIN_SRC"
 echo "$(green "✓") CLI symlinked: $(dim "$BIN_DST → $BIN_SRC")"
+# Also install generate-dashboard
+GEN_SRC="$REPO_DIR/bin/generate-dashboard"
+GEN_DST="$HOME/.local/bin/generate-dashboard"
+ln -sf "$GEN_SRC" "$GEN_DST"
+chmod +x "$GEN_SRC"
+echo "$(green "✓") Dashboard generator symlinked: $(dim "$GEN_DST → $GEN_SRC")"
 echo ""
 
 # 4. PATH check

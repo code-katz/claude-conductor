@@ -1337,6 +1337,103 @@ assert_output_contains "status shows File Overlap Warnings section" "File Overla
 
 echo ""
 
+# --- Add command ---
+echo "$(bold "Add command")"
+
+# Reset with fresh SESSIONS.md (using new init template with Plan section)
+rm -f SESSIONS.md
+"$CLI" init <<< "TestProject" >/dev/null 2>&1
+
+assert_exit "add with all flags exits 0" 0 "$CLI" add --persona Akira --task "Build API" --files "src/api/"
+assert_output_contains "add confirms registration" "registered" "$CLI" add --persona Sasha --task "Build UI" --files "src/ui/" --depends "#1"
+
+# Verify session was added to Active Sessions
+total=$((total + 1))
+if sed -n '/^## Active Sessions/,/^## [^A]/p' SESSIONS.md | grep -q "Akira"; then
+  echo "  $(green "✓") add inserts row into Active Sessions"
+  pass=$((pass + 1))
+else
+  echo "  $(red "✗") add should insert row into Active Sessions"
+  fail=$((fail + 1))
+fi
+
+# Verify plan checklist item was added
+total=$((total + 1))
+if grep -q "^\- \[ \] #1 Akira: Build API" SESSIONS.md; then
+  echo "  $(green "✓") add appends plan checklist item"
+  pass=$((pass + 1))
+else
+  echo "  $(red "✗") add should append plan checklist item"
+  fail=$((fail + 1))
+fi
+
+# Verify auto-increment
+total=$((total + 1))
+if sed -n '/^## Active Sessions/,/^## [^A]/p' SESSIONS.md | grep -q "| 2 | Sasha"; then
+  echo "  $(green "✓") add auto-increments session number"
+  pass=$((pass + 1))
+else
+  echo "  $(red "✗") add should auto-increment session number"
+  fail=$((fail + 1))
+fi
+
+# Verify log entry
+total=$((total + 1))
+if grep -q "registered.*Akira" SESSIONS.md; then
+  echo "  $(green "✓") add appends to Session Log"
+  pass=$((pass + 1))
+else
+  echo "  $(red "✗") add should append to Session Log"
+  fail=$((fail + 1))
+fi
+
+# Missing persona
+assert_exit "add without --persona exits 1" 1 "$CLI" add --task "Build API" --files "src/"
+
+# Missing task
+assert_exit "add without --task exits 1" 1 "$CLI" add --persona Akira --files "src/"
+
+echo ""
+
+# --- Plan checklist toggle ---
+echo "$(bold "Plan checklist")"
+
+# done should toggle checklist
+"$CLI" done 1 >/dev/null 2>&1
+
+total=$((total + 1))
+if grep -q "^\- \[x\] #1 Akira" SESSIONS.md; then
+  echo "  $(green "✓") done toggles plan checklist to [x]"
+  pass=$((pass + 1))
+else
+  echo "  $(red "✗") done should toggle plan checklist to [x]"
+  fail=$((fail + 1))
+fi
+
+# Session 2 should still be unchecked
+total=$((total + 1))
+if grep -q "^\- \[ \] #2 Sasha" SESSIONS.md; then
+  echo "  $(green "✓") other plan items remain unchecked"
+  pass=$((pass + 1))
+else
+  echo "  $(red "✗") other plan items should remain unchecked"
+  fail=$((fail + 1))
+fi
+
+# merge also toggles
+"$CLI" merge 2 >/dev/null 2>&1
+
+total=$((total + 1))
+if grep -q "^\- \[x\] #2 Sasha" SESSIONS.md; then
+  echo "  $(green "✓") merge toggles plan checklist to [x]"
+  pass=$((pass + 1))
+else
+  echo "  $(red "✗") merge should toggle plan checklist to [x]"
+  fail=$((fail + 1))
+fi
+
+echo ""
+
 # --- Results ---
 echo "────────────────────────────────────"
 if [[ $fail -eq 0 ]]; then
