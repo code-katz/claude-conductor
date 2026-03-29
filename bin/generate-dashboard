@@ -102,6 +102,19 @@ done < "$sf"
 
 # --- Status helpers ---
 
+# Map persona name to icon URL (GitHub raw)
+persona_icon_url() {
+  local name="$1"
+  local base="https://raw.githubusercontent.com/code-katz/.github/main/media/logos"
+  local lower
+  lower=$(echo "$name" | tr '[:upper:]' '[:lower:]')
+  case "$lower" in
+    akira|alex|casey|jordan|kai|morgan|quinn|river|robin|sage|sasha|toni)
+      echo "$base/${lower}-icon.png" ;;
+    *) echo "" ;;
+  esac
+}
+
 status_color() {
   case "$1" in
     planning)  echo "#6a9bcc" ;;
@@ -153,6 +166,12 @@ for (( i=0; i<active_count; i++ )); do
   depends="${a_depends[$i]}"
   notes="${a_notes[$i]}"
 
+  icon_url=$(persona_icon_url "${a_persona[$i]}")
+  icon_img=""
+  if [[ -n "$icon_url" ]]; then
+    icon_img="<img class=\"persona-icon\" src=\"${icon_url}\" alt=\"${persona}\" />"
+  fi
+
   deps_html=""
   if [[ -n "$depends" && "$depends" != "—" && "$depends" != "-" ]]; then
     deps_html="<div class=\"card-field\"><span class=\"field-label\">Depends on:</span> $(html_escape "$depends")</div>"
@@ -166,6 +185,7 @@ for (( i=0; i<active_count; i++ )); do
   session_cards_html+="
     <div class=\"session-card\">
       <div class=\"card-header\">
+        ${icon_img}
         <span class=\"session-id\">#${a_num[$i]}</span>
         <span class=\"persona\">${persona}</span>
         <span class=\"status-badge\" style=\"background:${badge_color}\">${icon} ${local_status}</span>
@@ -313,6 +333,14 @@ cat > "$dashboard_file" << HTMLEOF
       padding: 12px 16px;
       background: #222221;
       border-bottom: 1px solid #2a2a28;
+    }
+
+    .persona-icon {
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      object-fit: cover;
+      border: 2px solid #2a2a28;
     }
 
     .session-id {
