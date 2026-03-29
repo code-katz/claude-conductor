@@ -44,7 +44,7 @@ project_name=$(grep -m1 '^# ' "$sf" | sed 's/^# //' | sed 's/ — .*//')
 
 # Parse Active Sessions table into arrays
 active_count=0
-declare -a a_num=() a_persona=() a_task=() a_files=() a_status=() a_started=() a_depends=() a_notes=()
+declare -a a_num=() a_persona=() a_task=() a_files=() a_status=() a_started=() a_depends=() a_notes=() a_activity=()
 
 while IFS= read -r line; do
   if [[ "$line" == "|"* && "$line" != *"---"* && "$line" != *"Persona"* ]]; then
@@ -58,6 +58,7 @@ while IFS= read -r line; do
       a_started+=("$(echo "$line" | awk -F'|' '{gsub(/^ +| +$/, "", $7); print $7}')")
       a_depends+=("$(echo "$line" | awk -F'|' '{gsub(/^ +| +$/, "", $8); print $8}')")
       a_notes+=("$(echo "$line" | awk -F'|' '{gsub(/^ +| +$/, "", $9); print $9}')")
+      a_activity+=("$(echo "$line" | awk -F'|' '{gsub(/^ +| +$/, "", $10); print $10}')")
       active_count=$((active_count + 1))
     fi
   fi
@@ -182,6 +183,7 @@ for (( i=0; i<active_count; i++ )); do
   started=$(html_escape "${a_started[$i]}")
   depends="${a_depends[$i]}"
   notes="${a_notes[$i]}"
+  activity="${a_activity[$i]}"
 
   icon_url=$(persona_icon_url "${a_persona[$i]}")
   icon_img=""
@@ -195,12 +197,12 @@ for (( i=0; i<active_count; i++ )); do
   fi
 
   activity_html=""
-  if [[ -n "$notes" && "$notes" != " " ]]; then
+  if [[ -n "$activity" && "$activity" != " " ]]; then
     urgent_class=""
-    if [[ "$notes" == *"needs response"* ]]; then
+    if [[ "$activity" == *"needs response"* ]]; then
       urgent_class=" card-activity--urgent"
     fi
-    activity_html="<div class=\"card-activity${urgent_class}\">$(html_escape "$notes")</div>"
+    activity_html="<div class=\"card-activity${urgent_class}\">$(html_escape "$activity")</div>"
   fi
 
   session_cards_html+="
@@ -290,428 +292,72 @@ fi
 now_ts=$(date "+%Y-%m-%d %H:%M:%S")
 version_hash=$(date "+%s")
 
-# --- Write HTML ---
+# --- Build main content ---
 
-cat > "$dashboard_file" << HTMLEOF
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="conductor-version" content="${version_hash}">
-  <title>${project_name} — Session Dashboard</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Poppins:wght@400;600;700&display=swap" rel="stylesheet">
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-
-    body {
-      background: #141413;
-      color: #faf9f5;
-      font-family: 'Poppins', -apple-system, sans-serif;
-      min-height: 100vh;
-      padding: 0;
-    }
-
-    .header {
-      background: #1a1a19;
-      border-bottom: 2px solid #d4a843;
-      padding: 16px 32px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      flex-wrap: wrap;
-      gap: 12px;
-    }
-
-    .header-left {
-      display: flex;
-      align-items: center;
-      gap: 16px;
-    }
-
-    .project-name {
-      font-size: 1.4rem;
-      font-weight: 700;
-      color: #d4a843;
-      font-family: 'Poppins', sans-serif;
-    }
-
-    .session-count {
-      background: #2a2a28;
-      color: #faf9f5;
-      padding: 4px 12px;
-      border-radius: 12px;
-      font-size: 0.85rem;
-      font-family: 'JetBrains Mono', monospace;
-    }
-
-    .last-updated {
-      color: #b0aea5;
-      font-size: 0.8rem;
-      font-family: 'JetBrains Mono', monospace;
-    }
-
-    @keyframes fadeIn {
-      from { opacity: 0; }
-      to { opacity: 1; }
-    }
-
-    main {
-      padding: 24px 32px;
-      animation: fadeIn 0.3s ease-in;
-      transition: opacity 0.15s ease;
-    }
-
-    .section-title {
-      font-size: 1.1rem;
-      font-weight: 600;
-      color: #d4a843;
-      margin-bottom: 16px;
-      font-family: 'Poppins', sans-serif;
-    }
-
-    .card-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
-      gap: 16px;
-      margin-bottom: 32px;
-    }
-
-    .session-card {
-      background: #1e1e1d;
-      border: 1px solid #2a2a28;
-      border-radius: 8px;
-      overflow: hidden;
-      transition: border-color 0.2s;
-    }
-
-    .session-card:hover { border-color: #d4a843; }
-
-    .card-header {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      padding: 12px 16px;
-      background: #222221;
-      border-bottom: 1px solid #2a2a28;
-    }
-
-    .persona-icon {
-      width: 54px;
-      height: 54px;
-      border-radius: 50%;
-      object-fit: cover;
-      border: 2px solid #2a2a28;
-    }
-
-    .session-id {
-      font-family: 'JetBrains Mono', monospace;
-      font-weight: 600;
-      color: #d4a843;
-      font-size: 1rem;
-    }
-
-    .persona {
-      font-weight: 600;
-      font-size: 0.95rem;
-      flex: 1;
-    }
-
-    .status-badge {
-      padding: 3px 10px;
-      border-radius: 10px;
-      font-size: 0.75rem;
-      font-weight: 600;
-      color: #141413;
-      text-transform: uppercase;
-      letter-spacing: 0.03em;
-      white-space: nowrap;
-    }
-
-    .card-activity {
-      font-style: italic;
-      font-size: 0.8rem;
-      color: #b0aea5;
-      padding: 6px 16px;
-      background: #1a1a19;
-      border-bottom: 1px solid #2a2a28;
-    }
-
-    .card-activity--urgent {
-      color: #d4a843;
-      font-weight: 600;
-    }
-
-    .card-elapsed {
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 0.78rem;
-      color: #d4a843;
-    }
-
-    .card-body { padding: 14px 16px; }
-
-    .card-task {
-      font-size: 0.9rem;
-      margin-bottom: 10px;
-      line-height: 1.4;
-    }
-
-    .card-field {
-      font-size: 0.8rem;
-      color: #b0aea5;
-      margin-bottom: 4px;
-    }
-
-    .field-label {
-      color: #8a8880;
-      font-weight: 600;
-    }
-
-    code {
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 0.78rem;
-      background: #2a2a28;
-      padding: 1px 5px;
-      border-radius: 3px;
-    }
-
-    .merge-section {
-      background: #1e1e1d;
-      border: 1px solid #2a2a28;
-      border-radius: 8px;
-      padding: 16px 20px;
-      margin-bottom: 32px;
-    }
-
-    .merge-item {
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 0.85rem;
-      color: #b0aea5;
-      padding: 4px 0;
-    }
-
-    .completed-section {
-      margin-top: 32px;
-      opacity: 0.7;
-    }
-
-    .completed-table {
-      width: 100%;
-      border-collapse: collapse;
-      font-size: 0.8rem;
-    }
-
-    .completed-table th {
-      text-align: left;
-      padding: 8px 12px;
-      border-bottom: 1px solid #2a2a28;
-      color: #8a8880;
-      font-weight: 600;
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 0.75rem;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-    }
-
-    .completed-table td {
-      padding: 6px 12px;
-      border-bottom: 1px solid #1e1e1d;
-      color: #b0aea5;
-    }
-
-    .no-sessions {
-      text-align: center;
-      color: #b0aea5;
-      padding: 48px 0;
-      font-size: 0.95rem;
-    }
-
-    .plan-card {
-      background: #1e1e1d;
-      border: 2px solid #d4a843;
-      border-radius: 8px;
-      margin-bottom: 24px;
-    }
-
-    .plan-header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 12px 20px;
-      background: #222221;
-      border-bottom: 1px solid #2a2a28;
-    }
-
-    .plan-title {
-      font-weight: 700;
-      font-size: 1rem;
-      color: #d4a843;
-      font-family: 'Poppins', sans-serif;
-    }
-
-    .plan-progress {
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 0.8rem;
-      color: #b0aea5;
-    }
-
-    .plan-body { padding: 14px 20px; }
-
-    .plan-item {
-      font-size: 0.85rem;
-      padding: 4px 0;
-      color: #faf9f5;
-      font-family: 'JetBrains Mono', monospace;
-    }
-
-    .plan-item.checked { color: #7ab5b0; }
-
-    .plan-text-done { text-decoration: line-through; opacity: 0.6; }
-
-    .conflict-banner {
-      background: #3a2520;
-      border: 1px solid #c45c4e;
-      border-radius: 8px;
-      padding: 12px 20px;
-      margin-bottom: 24px;
-      color: #faf9f5;
-      font-size: 0.85rem;
-    }
-
-    .conflict-banner .conflict-title {
-      color: #c45c4e;
-      font-weight: 600;
-      margin-bottom: 6px;
-    }
-  </style>
-</head>
-<body>
-  <div class="header">
-    <div class="header-left">
-      <span class="project-name">${project_name}</span>
-      <span class="session-count">${active_count} active session$([ "$active_count" != "1" ] && echo "s")</span>
-    </div>
-    <span class="last-updated">Updated: ${now_ts}</span>
-  </div>
-
-  <main>
-HTMLEOF
+main_content=""
 
 # Plan card (Session 0)
 if [[ -n "$plan_card_html" ]]; then
-  cat >> "$dashboard_file" << HTMLEOF
-    ${plan_card_html}
-HTMLEOF
+  main_content+="    ${plan_card_html}
+"
 fi
 
 # Active sessions section
 if (( active_count > 0 )); then
-  cat >> "$dashboard_file" << HTMLEOF
-    <h2 class="section-title">Active Sessions</h2>
-    <div class="card-grid">
+  main_content+="    <h2 class=\"section-title\">Active Sessions</h2>
+    <div class=\"card-grid\">
       ${session_cards_html}
     </div>
-HTMLEOF
+"
 else
-  cat >> "$dashboard_file" << HTMLEOF
-    <div class="no-sessions">No active sessions. Start one with <code>claude-conductor start</code></div>
-HTMLEOF
+  main_content+="    <div class=\"no-sessions\">No active sessions. Start one with <code>claude-conductor start</code></div>
+"
 fi
 
 # Merge order section
 if [[ -n "$merge_html" ]]; then
-  cat >> "$dashboard_file" << HTMLEOF
-    <h2 class="section-title">Merge Order</h2>
-    <div class="merge-section">
+  main_content+="    <h2 class=\"section-title\">Merge Order</h2>
+    <div class=\"merge-section\">
       ${merge_html}
     </div>
-HTMLEOF
+"
 fi
 
 # Completed sessions section
 if (( completed_count > 0 )); then
-  cat >> "$dashboard_file" << HTMLEOF
-    <div class="completed-section">
-      <h2 class="section-title">Completed Sessions</h2>
+  main_content+="    <div class=\"completed-section\">
+      <h2 class=\"section-title\">Completed Sessions</h2>
       ${completed_html}
     </div>
-HTMLEOF
+"
 fi
 
-# Close HTML
-cat >> "$dashboard_file" << 'HTMLEOF'
-  </main>
-  <script>
-    // Elapsed time calculation
-    function formatElapsed(startedStr) {
-      if (!startedStr) return '';
-      var start = new Date(startedStr.replace(' ', 'T'));
-      if (isNaN(start.getTime())) return '';
-      var diff = Math.floor((Date.now() - start.getTime()) / 1000);
-      if (diff < 0) diff = 0;
-      var days = Math.floor(diff / 86400);
-      var hours = Math.floor((diff % 86400) / 3600);
-      var mins = Math.floor((diff % 3600) / 60);
-      if (days > 0) return days + 'd ' + hours + 'h';
-      if (hours > 0) return hours + 'h ' + mins + 'm';
-      return mins + 'm';
-    }
+# --- Write HTML from template ---
 
-    function updateElapsed() {
-      var cards = document.querySelectorAll('.session-card[data-started]');
-      cards.forEach(function(card) {
-        var started = card.getAttribute('data-started');
-        var el = card.querySelector('.card-elapsed');
-        if (el && started) {
-          el.textContent = '(' + formatElapsed(started) + ')';
-        }
-      });
-    }
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+template_file="$SCRIPT_DIR/../templates/dashboard.html"
 
-    updateElapsed();
-    setInterval(updateElapsed, 60000);
+if [[ ! -f "$template_file" ]]; then
+  echo "Error: template not found at $template_file" >&2
+  exit 1
+fi
 
-    // Live content swap via fetch
-    // Polls the same URL every 3 seconds, compares version hash,
-    // and smoothly swaps <main> content only when data has changed.
-    var currentVersion = document.querySelector('meta[name="conductor-version"]').content;
+template=$(<"$template_file")
 
-    function pollForChanges() {
-      fetch(location.href + '?' + Date.now())
-        .then(function(r) { return r.text(); })
-        .then(function(html) {
-          var parser = new DOMParser();
-          var doc = parser.parseFromString(html, 'text/html');
-          var versionMeta = doc.querySelector('meta[name="conductor-version"]');
-          if (versionMeta && versionMeta.content !== currentVersion) {
-            currentVersion = versionMeta.content;
-            var newMain = doc.querySelector('main');
-            if (newMain) {
-              var main = document.querySelector('main');
-              main.style.opacity = '0';
-              setTimeout(function() {
-                main.innerHTML = newMain.innerHTML;
-                var newHeader = doc.querySelector('.last-updated');
-                var header = document.querySelector('.last-updated');
-                if (newHeader && header) header.textContent = newHeader.textContent;
-                var newCount = doc.querySelector('.session-count');
-                var count = document.querySelector('.session-count');
-                if (newCount && count) count.textContent = newCount.textContent;
-                updateElapsed();
-                main.style.opacity = '1';
-              }, 150);
-            }
-          }
-        })
-        .catch(function() { /* server not running or network error; ignore */ });
-    }
+# Pluralize "session"
+active_label="session"
+if [[ "$active_count" != "1" ]]; then
+  active_label="sessions"
+fi
 
-    setInterval(pollForChanges, 3000);
-  </script>
-</body>
-</html>
-HTMLEOF
+# Substitute placeholders
+template="${template//\{\{VERSION_HASH\}\}/$version_hash}"
+template="${template//\{\{PROJECT_NAME\}\}/$project_name}"
+template="${template//\{\{ACTIVE_COUNT\}\}/$active_count}"
+template="${template//\{\{ACTIVE_SESSIONS_LABEL\}\}/$active_label}"
+template="${template//\{\{NOW_TS\}\}/$now_ts}"
+template="${template//\{\{MAIN_CONTENT\}\}/$main_content}"
+
+printf '%s\n' "$template" > "$dashboard_file"
 
 echo "$dashboard_file"

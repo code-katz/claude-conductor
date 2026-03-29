@@ -397,8 +397,8 @@ No plan defined. Run \`/parallel\` to generate a plan, or \`claude-conductor add
 
 ## Active Sessions
 
-| # | Persona | Task | Files | Status | Started | Depends On | Notes |
-|---|---------|------|-------|--------|---------|------------|-------|
+| # | Persona | Task | Files | Status | Started | Depends On | Notes | Activity |
+|---|---------|------|-------|--------|---------|------------|-------|----------|
 
 ## Merge Order
 
@@ -461,7 +461,7 @@ cmd_start() {
 
     local ts
     ts=$(now_timestamp)
-    local row="| ${num} | ${persona} | ${task} | ${files} | planning | ${ts} | ${depends} | |"
+    local row="| ${num} | ${persona} | ${task} | ${files} | planning | ${ts} | ${depends} | | |"
     insert_active_row "$sf" "$row"
     append_log "$sf" "Session #${num} registered: ${persona} — ${task}"
 
@@ -562,7 +562,7 @@ cmd_add() {
   num=$(next_session_number "$sf")
   local ts
   ts=$(now_timestamp)
-  local row="| ${num} | ${persona} | ${task} | ${files} | planning | ${ts} | ${depends} | |"
+  local row="| ${num} | ${persona} | ${task} | ${files} | planning | ${ts} | ${depends} | | |"
   insert_active_row "$sf" "$row"
   append_plan_item "$sf" "$num" "$persona" "$task" "$files"
   append_log "$sf" "Session #${num} registered: ${persona} — ${task}"
@@ -615,7 +615,7 @@ cmd_update() {
 
   update_session_field "$sf" "$num" 6 "$new_status"
   if [[ -n "$activity" ]]; then
-    update_session_field "$sf" "$num" 9 "$activity"
+    update_session_field "$sf" "$num" 10 "$activity"
   fi
   append_log "$sf" "Session #${num} status changed to ${new_status}${activity:+ ($activity)}"
 
@@ -703,7 +703,7 @@ cmd_abandon() {
 
   update_session_field "$sf" "$num" 6 "abandoned"
   if [[ -n "$reason" ]]; then
-    update_session_field "$sf" "$num" 9 "$reason"
+    update_session_field "$sf" "$num" 10 "$reason"
   fi
   append_log "$sf" "Session #${num} abandoned${reason:+: $reason}"
 
@@ -876,6 +876,20 @@ cmd_conflicts() {
   echo ""
 }
 
+# Find an available port starting from 8484, trying up to 10 ports
+find_available_port() {
+  local base=8484
+  local max_tries=10
+  for ((i=0; i<max_tries; i++)); do
+    local p=$((base + i))
+    if ! (echo >/dev/tcp/127.0.0.1/$p) 2>/dev/null; then
+      echo "$p"
+      return 0
+    fi
+  done
+  return 1
+}
+
 # Generate HTML dashboard (delegates to bin/generate-dashboard)
 cmd_dashboard() {
   local sf
@@ -893,18 +907,31 @@ cmd_dashboard() {
   local dashboard_dir
   dashboard_dir="$(dirname "$sf")"
   local pidfile="$dashboard_dir/.conductor-server.pid"
-  local port=8484
 
   # Handle --stop
   if [[ "${1:-}" == "--stop" ]]; then
     if [[ -f "$pidfile" ]]; then
-      local pid
-      pid=$(cat "$pidfile")
-      kill "$pid" 2>/dev/null || true
+      local pid port
+      read pid port < "$pidfile"
+      if kill -0 "$pid" 2>/dev/null; then
+        local proc_cmd
+        proc_cmd=$(ps -p "$pid" -o args= 2>/dev/null || true)
+        if [[ "$proc_cmd" == *"http.server"* ]]; then
+          kill "$pid" 2>/dev/null || true
+          echo ""
+          echo "$(green "✓") Dashboard server stopped (port ${port})."
+          echo ""
+        else
+          echo ""
+          echo "$(red "Warning:") PID $pid is not an http.server process. Removing stale pidfile."
+          echo ""
+        fi
+      else
+        echo ""
+        echo "$(dim "Server already stopped (stale pidfile removed).")"
+        echo ""
+      fi
       rm -f "$pidfile"
-      echo ""
-      echo "$(green "✓") Dashboard server stopped."
-      echo ""
     else
       echo ""
       echo "$(dim "No dashboard server running.")"
@@ -920,15 +947,40 @@ cmd_dashboard() {
   echo "$(green "✓") Dashboard generated: $(dim "$dashboard_path")"
 
   if [[ "${1:-}" == "--open" ]]; then
-    # Start a background HTTP server if not already running
-    if [[ -f "$pidfile" ]] && kill -0 "$(cat "$pidfile")" 2>/dev/null; then
-      echo "  Server already running on port ${port}."
-    else
-      python3 -m http.server "$port" --directory "$dashboard_dir" --bind 127.0.0.1 >/dev/null 2>&1 &
-      echo "$!" > "$pidfile"
-      echo "  $(green "✓") Server started on port ${port} (PID $(cat "$pidfile"))."
-      sleep 0.5
+    local pid port
+
+    # Check for existing server (and clean up stale pidfile)
+    if [[ -f "$pidfile" ]]; then
+      read pid port < "$pidfile"
+      if kill -0 "$pid" 2>/dev/null; then
+        echo "  Server already running on port ${port}."
+        local url="http://localhost:${port}/.conductor-dashboard.html"
+        if command -v open >/dev/null 2>&1; then
+          open "$url"
+        elif command -v xdg-open >/dev/null 2>&1; then
+          xdg-open "$url"
+        fi
+        echo "  Opened: $(dim "$url")"
+        echo "  Stop with: $(dim "claude-conductor dash --stop")"
+        echo ""
+        return
+      else
+        rm -f "$pidfile"
+      fi
     fi
+
+    # Start a new server on an available port
+    port=$(find_available_port) || {
+      echo "  $(red "Error:") No available port found (tried 8484-8493)."
+      echo ""
+      return 1
+    }
+
+    python3 -m http.server "$port" --directory "$dashboard_dir" --bind 127.0.0.1 >/dev/null 2>&1 &
+    echo "$! $port" > "$pidfile"
+    echo "  $(green "✓") Server started on port ${port} (PID $!)."
+    sleep 0.5
+
     local url="http://localhost:${port}/.conductor-dashboard.html"
     if command -v open >/dev/null 2>&1; then
       open "$url"

@@ -273,7 +273,7 @@ echo ""
 
 echo "$(bold "Fade-in refresh")"
 
-assert_file_contains "HTML contains fadeIn animation" ".conductor-dashboard.html" "fadeIn"
+assert_file_contains "HTML contains opacity transition" ".conductor-dashboard.html" "transition: opacity"
 assert_file_contains "fetch polling present for live updates" ".conductor-dashboard.html" "pollForChanges"
 
 echo ""
@@ -288,10 +288,10 @@ cat > SESSIONS.md << 'EOF'
 
 ## Active Sessions
 
-| # | Persona | Task | Files | Status | Started | Depends On | Notes |
-|---|---------|------|-------|--------|---------|------------|-------|
-| 1 | Akira | Build API | app/ | coding | 2026-03-28 14:00 | | writing tests |
-| 2 | Sasha | Build UI | src/ | blocked | 2026-03-28 14:05 | #1 | needs response |
+| # | Persona | Task | Files | Status | Started | Depends On | Notes | Activity |
+|---|---------|------|-------|--------|---------|------------|-------|----------|
+| 1 | Akira | Build API | app/ | coding | 2026-03-28 14:00 | | | writing tests |
+| 2 | Sasha | Build UI | src/ | blocked | 2026-03-28 14:05 | #1 | | needs response |
 
 ## Merge Order
 
