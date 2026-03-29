@@ -646,6 +646,7 @@ cmd_done() {
   fi
 
   update_session_field "$sf" "$num" 6 "done"
+  update_session_field "$sf" "$num" 10 ""
   toggle_plan_item "$sf" "$num"
   append_log "$sf" "Session #${num} marked done"
 
@@ -673,6 +674,7 @@ cmd_merge() {
   fi
 
   update_session_field "$sf" "$num" 6 "merged"
+  update_session_field "$sf" "$num" 10 ""
   toggle_plan_item "$sf" "$num"
   append_log "$sf" "Session #${num} marked merged"
 
@@ -976,7 +978,12 @@ cmd_dashboard() {
       return 1
     }
 
-    python3 -m http.server "$port" --directory "$dashboard_dir" --bind 127.0.0.1 >/dev/null 2>&1 &
+    local serve_script="$script_dir/serve-dashboard"
+    if [[ -x "$serve_script" ]]; then
+      python3 "$serve_script" "$port" "$dashboard_dir" &
+    else
+      python3 -m http.server "$port" --directory "$dashboard_dir" --bind 127.0.0.1 >/dev/null 2>&1 &
+    fi
     echo "$! $port" > "$pidfile"
     echo "  $(green "✓") Server started on port ${port} (PID $!)."
     sleep 0.5
