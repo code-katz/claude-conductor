@@ -140,8 +140,14 @@
       color: var(--text-dim);
       font-family: 'JetBrains Mono', monospace;
       font-weight: 600;
+      overflow: hidden;
     }
     .persona-avatar.linked { border-color: var(--accent); }
+    .persona-avatar img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
     .persona-name {
       font-size: 0.65rem;
       font-weight: 600;
@@ -211,6 +217,8 @@
     }
     .perm-badge.bypass { color: var(--red); background: var(--red-dim); }
     .perm-badge.accept-edits { color: var(--accent); background: var(--accent-dim); }
+    .perm-badge.plan { color: var(--teal); background: rgba(122, 181, 176, 0.12); }
+    .perm-badge.default { color: var(--text-muted); background: rgba(138, 136, 128, 0.1); }
 
     /* Subagents */
     .subagents {
@@ -479,7 +487,18 @@
       return 'var(--teal)';
     }
 
-    // --- Persona initial from label ---
+    // --- Persona helpers ---
+    const PERSONA_ICON_BASE = 'https://raw.githubusercontent.com/code-katz/.github/main/media/logos';
+    const KNOWN_PERSONAS = new Set([
+      'akira', 'alex', 'casey', 'jordan', 'kai', 'morgan', 'quinn', 'river', 'robin', 'sage', 'sasha', 'toni'
+    ]);
+
+    function personaIconUrl(name) {
+      if (!name) return null;
+      const lower = name.toLowerCase();
+      return KNOWN_PERSONAS.has(lower) ? PERSONA_ICON_BASE + '/' + lower + '-icon.png' : null;
+    }
+
     function personaInitial(label) {
       if (!label) return '?';
       const name = label.split('/').pop().split('-')[0];
@@ -492,8 +511,8 @@
       const pct = contextPercent(session.lastTurnInputTotal || session.tokensIn);
       const emoji = STATUS_EMOJI[st] || '';
       const c = session.conductor;
-      const isLinked = c && c.persona;
-      const personaDisplay = isLinked ? c.persona : 'Unassigned';
+      const isLinked = !!(c && c.persona);
+      const personaDisplay = isLinked ? c.persona.charAt(0).toUpperCase() + c.persona.slice(1) : 'Unassigned';
       const conductorStatusDisplay = session.conductorStatus || st;
 
       return e('div', { className: 'card status-' + st },
@@ -502,7 +521,9 @@
           // Persona slot
           e('div', { className: 'persona-slot' },
             e('div', { className: 'persona-avatar' + (isLinked ? ' linked' : '') },
-              isLinked ? c.persona.charAt(0).toUpperCase() : personaInitial(session.label)
+              isLinked && personaIconUrl(c.persona)
+                ? e('img', { src: personaIconUrl(c.persona), alt: c.persona })
+                : (isLinked ? c.persona.charAt(0).toUpperCase() : personaInitial(session.label))
             ),
             e('span', { className: 'persona-name' + (isLinked ? ' linked' : '') }, personaDisplay)
           ),
@@ -537,7 +558,9 @@
                 ? e('span', { className: 'perm-badge bypass' }, 'YOLO')
                 : session.permissionMode === 'acceptEdits'
                 ? e('span', { className: 'perm-badge accept-edits' }, 'AUTO-EDIT')
-                : null,
+                : session.permissionMode === 'plan'
+                ? e('span', { className: 'perm-badge plan' }, 'PLAN')
+                : e('span', { className: 'perm-badge default' }, 'ASK'),
               e('span', { className: 'card-status ' + st }, emoji + ' ' + conductorStatusDisplay)
             )
           )

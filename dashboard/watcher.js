@@ -103,33 +103,112 @@ function loadSessionsFile(filePath) {
 const autoLinks = new Map(); // JSONL sessionId -> { conductorNumber, persona }
 const scannedSessions = new Set(); // sessionIds we've already scanned
 
+const KNOWN_PERSONAS = new Set([
+  'akira', 'alex', 'casey', 'jordan', 'kai', 'morgan', 'quinn', 'river', 'robin', 'sage', 'sasha', 'toni'
+]);
+
 function scanSessionForLink(sessionId) {
-  if (scannedSessions.has(sessionId)) return;
   const session = sessions.get(sessionId);
   if (!session) return;
 
-  // Look through recent log for user messages that contain session patterns
-  for (const entry of session.recentLog) {
-    if (entry.type !== 'user') continue;
+  // Always re-scan for persona changes (personas can switch mid-session)
+  // But only scan for session# links once (those don't change)
+  const hasSessionLink = scannedSessions.has(sessionId) && autoLinks.has(sessionId)
+    && autoLinks.get(sessionId).conductorNumber > 0;
+  if (hasSessionLink) return;
+
+  let conductorNumber = 0;
+  let detectedPersona = '';
+
+  // Scan recent log in REVERSE order (most recent first) to find latest persona
+  for (let i = session.recentLog.length - 1; i >= 0; i--) {
+    const entry = session.recentLog[i];
     const text = entry.msg || '';
 
-    // Match patterns: "session #1", "Session 1", "#1 Akira", "You are session #2 (Sasha)"
-    const sessionMatch = text.match(/[Ss]ession\s*#?(\d+)/);
-    if (sessionMatch) {
-      const num = parseInt(sessionMatch[1], 10);
-      // Try to extract persona: "(Sasha)", "/sasha", "Persona: Sasha"
-      const personaMatch = text.match(/\((\w+)\)|\/(\w+)|[Pp]ersona:\s*(\w+)/);
-      const persona = personaMatch ? (personaMatch[1] || personaMatch[2] || personaMatch[3]) : '';
-      autoLinks.set(sessionId, { conductorNumber: num, persona });
-      scannedSessions.add(sessionId);
-      return;
+    // Detect persona activation: "claude-team use akira"
+    if (!detectedPersona && entry.type === 'user') {
+      const teamMatch = text.match(/claude-team\s+use\s+(\w+)/i);
+      if (teamMatch && KNOWN_PERSONAS.has(teamMatch[1].toLowerCase())) {
+        detectedPersona = teamMatch[1].toLowerCase();
+      }
     }
 
-    // Match: "/conductor u 1", "/conductor update 1"
-    const cmdMatch = text.match(/conductor\s+u(?:pdate)?\s+(\d+)/i);
-    if (cmdMatch) {
-      const num = parseInt(cmdMatch[1], 10);
-      autoLinks.set(sessionId, { conductorNumber: num, persona: '' });
+    // Detect persona from assistant response: "Sasha here", "Akira here"
+    if (!detectedPersona && entry.type === 'think') {
+      const hereMatch = text.match(/^(\w+)\s+here[.,]/i);
+      if (hereMatch && KNOWN_PERSONAS.has(hereMatch[1].toLowerCase())) {
+        detectedPersona = hereMatch[1].toLowerCase();
+      }
+    }
+
+    // Match session patterns: "session #1", "Session 1"
+    if (!conductorNumber && entry.type === 'user') {
+      const sessionMatch = text.match(/[Ss]ession\s*#?(\d+)/);
+      if (sessionMatch) {
+        conductorNumber = parseInt(sessionMatch[1], 10);
+        const personaMatch = text.match(/\((\w+)\)|\/(\w+)|[Pp]ersona:\s*(\w+)/);
+        if (!detectedPersona && personaMatch) {
+          const p = personaMatch[1] || personaMatch[2] || personaMatch[3];
+          if (KNOWN_PERSONAS.has(p.toLowerCase())) detectedPersona = p.toLowerCase();
+        }
+      }
+
+      // Match: "/conductor u 1", "/conductor update 1"
+      if (!conductorNumber) {
+        const cmdMatch = text.match(/conductor\s+u(?:pdate)?\s+(\d+)/i);
+        if (cmdMatch) conductorNumber = parseInt(cmdMatch[1], 10);
+      }
+    }
+  }
+
+  if (conductorNumber > 0 || detectedPersona) {
+    autoLinks.set(sessionId, { conductorNumber, persona: detectedPersona });
+    scannedSessions.add(sessionId);
+  }
+}
+
+// Deeper scan: read JSONL files directly for persona patterns missed by recentLog
+function deepScanForPersona(sessionId) {
+  const session = sessions.get(sessionId);
+  if (!session || !session.projectHash) return;
+
+  const projectDir = path.join(WATCH_DIR, session.projectHash);
+  if (!fs.existsSync(projectDir)) return;
+
+  let files;
+  try { files = fs.readdirSync(projectDir); } catch { return; }
+
+  for (const file of files) {
+    if (!file.endsWith('.jsonl') || file.includes('compact')) continue;
+    const filePath = path.join(projectDir, file);
+    let content;
+    try {
+      const raw = fs.readFileSync(filePath, 'utf8');
+      // Only scan files belonging to this session
+      if (!raw.includes(sessionId)) continue;
+      content = raw;
+    } catch { continue; }
+
+    // Find ALL persona activations and use the LAST one (most recent)
+    let lastPersona = '';
+    const patterns = [
+      /claude-team\s+use\s+(\w+)/gi,
+      /You are now switching to (\w+)/gi,
+      /You are (\w+),\s+a specialized/gi,
+    ];
+    for (const pattern of patterns) {
+      let match;
+      while ((match = pattern.exec(content)) !== null) {
+        if (KNOWN_PERSONAS.has(match[1].toLowerCase())) {
+          lastPersona = match[1].toLowerCase();
+        }
+      }
+    }
+
+    if (lastPersona) {
+      const existing = autoLinks.get(sessionId);
+      const num = existing ? existing.conductorNumber : 0;
+      autoLinks.set(sessionId, { conductorNumber: num, persona: lastPersona });
       scannedSessions.add(sessionId);
       return;
     }
@@ -192,6 +271,7 @@ function getOrCreateSession(sessionId) {
       costUSD: 0,
       turnCount: 0,
       activeFiles: [],
+      fullPaths: [], // full file paths from tool_use for project inference
       recentLog: [],
       startedAt: null,
       lastEventAt: null,
@@ -228,6 +308,51 @@ function extractActiveFiles(content) {
   return files;
 }
 
+// Derive a display label from cwd
+function deriveLabel(cwd) {
+  const parts = cwd.split('/').filter(Boolean);
+  // If cwd is a git repo, use parent/repo format
+  if (fs.existsSync(path.join(cwd, '.git'))) {
+    return path.basename(cwd);
+  }
+  // Walk up to find nearest git repo
+  let dir = cwd;
+  while (dir !== path.dirname(dir)) {
+    if (fs.existsSync(path.join(dir, '.git'))) {
+      return path.basename(dir);
+    }
+    dir = path.dirname(dir);
+  }
+  // No git repo found; use last directory name
+  return parts[parts.length - 1] || cwd;
+}
+
+// Refine label by scanning full file paths from tool_use events
+function refineLabelFromPaths(cwd, fullPaths) {
+  // fullPaths are absolute paths from tool_use events (file_path, path fields)
+  for (let i = fullPaths.length - 1; i >= 0; i--) {
+    const fp = fullPaths[i];
+    if (!fp.startsWith(cwd + '/')) continue;
+    const relative = fp.substring(cwd.length + 1);
+    const parts = relative.split('/');
+    // Check one level deep for git repo (e.g., d20mob/)
+    if (parts.length >= 1) {
+      const oneDeep = path.join(cwd, parts[0]);
+      if (fs.existsSync(path.join(oneDeep, '.git'))) {
+        return parts[0];
+      }
+    }
+    // Check two levels deep (e.g., code-katz/claude-conductor/)
+    if (parts.length >= 2) {
+      const twoDeep = path.join(cwd, parts[0], parts[1]);
+      if (fs.existsSync(path.join(twoDeep, '.git'))) {
+        return parts[0] + '/' + parts[1];
+      }
+    }
+  }
+  return null;
+}
+
 function processEvent(event, projectHash) {
   if (!event || !event.sessionId) return;
   if (event.type === 'file-history-snapshot' || event.type === 'queue-operation' || event.type === 'last-prompt') return;
@@ -243,8 +368,15 @@ function processEvent(event, projectHash) {
 
   if (event.cwd && !session.cwd) {
     session.cwd = event.cwd;
-    const parts = event.cwd.split('/').filter(Boolean);
-    session.label = parts.slice(-2).join('/');
+    session.label = deriveLabel(event.cwd);
+  }
+  // Update label from full file paths if we can infer a more specific project
+  if (session.cwd && session.fullPaths.length > 0 && !session._labelRefined) {
+    const refined = refineLabelFromPaths(session.cwd, session.fullPaths);
+    if (refined) {
+      session.label = refined;
+      session._labelRefined = true;
+    }
   }
   if (event.gitBranch && !session.gitBranch) {
     session.gitBranch = event.gitBranch;
@@ -308,11 +440,20 @@ function processEvent(event, projectHash) {
           addToRecentLog(session, { time: ts, type: 'think', msg: snippet });
         }
       }
-      // Track active files
+      // Track active files and full paths (for project label inference)
       const newFiles = extractActiveFiles(content);
       if (newFiles.length) {
         const fileSet = new Set([...newFiles, ...session.activeFiles]);
         session.activeFiles = [...fileSet].slice(0, 10);
+      }
+      for (const block of content) {
+        if (block.type === 'tool_use' && block.input) {
+          const fp = block.input.file_path || block.input.path;
+          if (fp && typeof fp === 'string' && fp.startsWith('/')) {
+            session.fullPaths.push(fp);
+            if (session.fullPaths.length > 50) session.fullPaths = session.fullPaths.slice(-50);
+          }
+        }
       }
     }
 
@@ -465,6 +606,7 @@ app.get('/api/sessions', (req, res) => {
   // Run auto-linking scan on all sessions
   for (const sessionId of sessions.keys()) {
     scanSessionForLink(sessionId);
+    if (!autoLinks.has(sessionId)) deepScanForPersona(sessionId);
   }
   // Save links if any new ones were found
   if (autoLinks.size > 0 && conductorData.projectRoot) {
