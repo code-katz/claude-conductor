@@ -905,8 +905,17 @@ find_available_port() {
 
 # Live dashboard (Node.js) — delegates to dashboard/watcher.js
 cmd_dashboard_live() {
+  local real_script
+  real_script="${BASH_SOURCE[0]}"
+  # Resolve symlinks to find the actual repo location
+  while [[ -L "$real_script" ]]; do
+    local link_dir
+    link_dir="$(cd "$(dirname "$real_script")" && pwd)"
+    real_script="$(readlink "$real_script")"
+    [[ "$real_script" != /* ]] && real_script="$link_dir/$real_script"
+  done
   local script_dir
-  script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  script_dir="$(cd "$(dirname "$real_script")" && pwd)"
   local repo_dir
   repo_dir="$(dirname "$script_dir")"
   local watcher="$repo_dir/dashboard/watcher.js"
