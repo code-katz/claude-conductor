@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 320" width="1280" height="320">
+  <rect width="1280" height="320" fill="#141413"/>
+  <rect x="0" y="300" width="1280" height="2" fill="#d4a843" opacity="0.6"/>
+  <text x="640" y="130" text-anchor="middle" font-family="Poppins, -apple-system, sans-serif" font-size="52" font-weight="700" fill="#d4a843">claude-conductor</text>
+  <text x="640" y="175" text-anchor="middle" font-family="JetBrains Mono, Fira Code, Consolas, monospace" font-size="18" fill="#b0aea5">live dashboard for parallel Claude Code sessions</text>
+  <text x="640" y="230" text-anchor="middle" font-family="JetBrains Mono, Fira Code, Consolas, monospace" font-size="14" fill="#8a8880">real-time monitoring | token tracking | persona orchestration</text>
+  <line x1="440" y1="260" x2="840" y2="260" stroke="#d4a843" stroke-width="1.5" stroke-opacity="0.3"/>
+  <text x="640" y="285" text-anchor="middle" font-family="JetBrains Mono, Fira Code, Consolas, monospace" font-size="12" fill="#4ade80">v2</text>
+</svg>

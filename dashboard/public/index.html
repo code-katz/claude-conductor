@@ -3,52 +3,64 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Claude Code Dashboard</title>
+  <title>claude-conductor — Live Dashboard</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Poppins:wght@400;600;700&display=swap" rel="stylesheet">
   <style>
     :root {
-      --bg: #0a0e14;
-      --bg-card: #111820;
-      --bg-card-hover: #161d27;
-      --border: #1e2a3a;
-      --text: #c5cdd8;
-      --text-dim: #5c6a7a;
-      --text-bright: #e8edf3;
-      --green: #00ff88;
-      --yellow: #ffcc00;
-      --red: #ff4444;
-      --grey: #555;
+      --bg: #141413;
+      --bg-card: #1e1e1d;
+      --bg-card-hover: #242423;
+      --bg-card-header: #222221;
+      --border: #2a2a28;
+      --text: #faf9f5;
+      --text-dim: #b0aea5;
+      --text-muted: #8a8880;
+      --accent: #d4a843;
+      --accent-dim: rgba(212, 168, 67, 0.15);
+      --success: #4ade80;
+      --success-dim: rgba(74, 222, 128, 0.12);
+      --teal: #7ab5b0;
+      --red: #c45c4e;
+      --red-dim: rgba(196, 92, 78, 0.15);
       --blue: #4dabf7;
-      --bar-bg: #1a2332;
+      --bar-bg: #2a2a28;
     }
 
     * { margin: 0; padding: 0; box-sizing: border-box; }
 
     body {
-      font-family: 'IBM Plex Mono', monospace;
+      font-family: 'Poppins', -apple-system, sans-serif;
       background: var(--bg);
       color: var(--text);
       min-height: 100vh;
     }
 
-    #root { max-width: 1400px; margin: 0 auto; padding: 20px; }
+    #root { max-width: 1400px; margin: 0 auto; padding: 0; }
 
     /* --- Header --- */
     .header {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      padding: 16px 20px;
-      background: var(--bg-card);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      margin-bottom: 20px;
+      padding: 16px 32px;
+      background: var(--bg-card-header);
+      border-bottom: 2px solid var(--accent);
+      margin-bottom: 24px;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+    .header-left {
+      display: flex;
+      align-items: center;
+      gap: 16px;
     }
     .header-title {
-      font-size: 16px;
-      font-weight: 600;
-      color: var(--text-bright);
+      font-size: 1.4rem;
+      font-weight: 700;
+      color: var(--accent);
+      font-family: 'Poppins', sans-serif;
       display: flex;
       align-items: center;
       gap: 10px;
@@ -56,27 +68,33 @@
     .header-title .dot {
       width: 8px; height: 8px;
       border-radius: 50%;
-      background: var(--green);
+      background: var(--success);
       animation: pulse 2s infinite;
     }
     @keyframes pulse {
       0%, 100% { opacity: 1; }
-      50% { opacity: 0.4; }
+      50% { opacity: 0.3; }
+    }
+    @keyframes pulse-amber {
+      0%, 100% { opacity: 1; box-shadow: 0 0 8px var(--accent); }
+      50% { opacity: 0.4; box-shadow: 0 0 2px var(--accent); }
     }
     .header-stats {
       display: flex;
       gap: 24px;
-      font-size: 13px;
+      font-size: 0.85rem;
+      font-family: 'JetBrains Mono', monospace;
     }
-    .stat-label { color: var(--text-dim); margin-right: 6px; }
-    .stat-value { color: var(--text-bright); font-weight: 500; }
-    .stat-value.cost { color: var(--green); }
+    .stat-label { color: var(--text-muted); margin-right: 6px; }
+    .stat-value { color: var(--text); font-weight: 500; }
+    .stat-value.cost { color: var(--accent); }
 
     /* --- Grid --- */
     .grid {
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(420px, 1fr));
       gap: 16px;
+      padding: 0 32px 32px;
     }
 
     /* --- Session Card --- */
@@ -84,26 +102,67 @@
       background: var(--bg-card);
       border: 1px solid var(--border);
       border-radius: 8px;
-      padding: 16px;
-      transition: background 0.2s, border-color 0.2s;
+      overflow: hidden;
+      transition: border-color 0.2s;
     }
-    .card:hover { background: var(--bg-card-hover); }
-    .card.status-thinking { border-left: 3px solid var(--green); }
-    .card.status-waiting  { border-left: 3px solid var(--yellow); }
-    .card.status-error    { border-left: 3px solid var(--red); }
-    .card.status-idle     { border-left: 3px solid #ff8800; opacity: 0.7; }
+    .card:hover { border-color: var(--accent); }
+    .card.status-thinking  { border-left: 3px solid var(--success); }
+    .card.status-waiting   { border-left: 3px solid var(--accent); }
+    .card.status-error     { border-left: 3px solid var(--red); }
+    .card.status-idle      { border-left: 3px solid var(--text-muted); opacity: 0.7; }
     .card.status-idle-stale { border-left: 3px solid var(--border); opacity: 0.35; }
+
+    .card-top {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      padding: 14px 16px 0;
+    }
+
+    /* Persona slot */
+    .persona-slot {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+      min-width: 54px;
+    }
+    .persona-avatar {
+      width: 42px;
+      height: 42px;
+      border-radius: 50%;
+      background: var(--border);
+      border: 2px solid var(--text-muted);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+      color: var(--text-dim);
+      font-family: 'JetBrains Mono', monospace;
+      font-weight: 600;
+    }
+    .persona-avatar.linked { border-color: var(--accent); }
+    .persona-name {
+      font-size: 0.65rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      font-family: 'JetBrains Mono', monospace;
+    }
+    .persona-name.linked { color: var(--accent); }
 
     .card-header {
       display: flex;
       justify-content: space-between;
       align-items: flex-start;
-      margin-bottom: 12px;
+      flex: 1;
+      min-width: 0;
     }
     .card-label {
-      font-size: 14px;
+      font-size: 0.9rem;
       font-weight: 600;
-      color: var(--text-bright);
+      color: var(--text);
       display: flex;
       align-items: center;
       gap: 8px;
@@ -113,35 +172,45 @@
       border-radius: 50%;
       flex-shrink: 0;
     }
-    .status-dot.thinking { background: var(--green); animation: pulse 1.5s infinite; }
-    .status-dot.waiting  { background: var(--yellow); animation: pulse 2s infinite; }
+    .status-dot.thinking { background: var(--success); animation: pulse 1.5s infinite; }
+    .status-dot.waiting  { background: var(--accent); animation: pulse-amber 2s infinite; }
     .status-dot.error    { background: var(--red); }
-    .status-dot.idle     { background: var(--grey); }
+    .status-dot.idle     { background: var(--text-muted); }
     .status-dot.idle-stale { background: var(--border); }
 
     .card-status {
-      font-size: 11px;
+      font-size: 0.7rem;
       text-transform: uppercase;
       letter-spacing: 0.5px;
       padding: 2px 8px;
-      border-radius: 4px;
-      font-weight: 500;
+      border-radius: 10px;
+      font-weight: 600;
+      font-family: 'JetBrains Mono', monospace;
+      white-space: nowrap;
     }
-    .card-status.thinking { color: var(--green); background: rgba(0,255,136,0.1); }
-    .card-status.waiting  { color: var(--yellow); background: rgba(255,204,0,0.1); }
-    .card-status.error    { color: var(--red); background: rgba(255,68,68,0.1); }
-    .card-status.idle     { color: var(--grey); background: rgba(85,85,85,0.1); }
-    .card-status.idle-stale { color: var(--border); background: rgba(30,42,58,0.3); }
+    .card-status.thinking { color: var(--success); background: var(--success-dim); }
+    .card-status.waiting  { color: var(--accent); background: var(--accent-dim); }
+    .card-status.error    { color: var(--red); background: var(--red-dim); }
+    .card-status.idle     { color: var(--text-muted); background: rgba(138,136,128,0.1); }
+    .card-status.idle-stale { color: var(--border); background: rgba(42,42,40,0.3); }
+
+    .conductor-status {
+      font-size: 0.65rem;
+      color: var(--text-dim);
+      font-family: 'JetBrains Mono', monospace;
+      margin-top: 2px;
+    }
 
     .perm-badge {
-      font-size: 10px;
+      font-size: 0.6rem;
       padding: 1px 6px;
       border-radius: 3px;
-      font-weight: 500;
+      font-weight: 600;
       letter-spacing: 0.3px;
+      font-family: 'JetBrains Mono', monospace;
     }
-    .perm-badge.bypass { color: var(--red); background: rgba(255,68,68,0.15); }
-    .perm-badge.accept-edits { color: var(--yellow); background: rgba(255,204,0,0.12); }
+    .perm-badge.bypass { color: var(--red); background: var(--red-dim); }
+    .perm-badge.accept-edits { color: var(--accent); background: var(--accent-dim); }
 
     /* Subagents */
     .subagents {
@@ -150,24 +219,26 @@
       padding-top: 8px;
     }
     .subagents-header {
-      font-size: 11px;
-      color: var(--text-dim);
+      font-size: 0.7rem;
+      color: var(--text-muted);
       margin-bottom: 6px;
+      font-family: 'JetBrains Mono', monospace;
     }
     .subagent {
       display: flex;
       align-items: center;
       gap: 6px;
-      font-size: 11px;
+      font-size: 0.7rem;
       padding: 3px 0;
+      font-family: 'JetBrains Mono', monospace;
     }
     .subagent-dot {
       width: 6px; height: 6px;
       border-radius: 50%;
       flex-shrink: 0;
     }
-    .subagent-dot.thinking { background: var(--green); animation: pulse 1.5s infinite; }
-    .subagent-dot.idle { background: var(--grey); }
+    .subagent-dot.thinking { background: var(--success); animation: pulse 1.5s infinite; }
+    .subagent-dot.idle { background: var(--text-muted); }
     .subagent-task {
       color: var(--text-dim);
       overflow: hidden;
@@ -176,35 +247,39 @@
       flex: 1;
     }
     .subagent-tokens {
-      color: var(--text-dim);
+      color: var(--text-muted);
       flex-shrink: 0;
     }
+
+    .card-body { padding: 12px 16px 16px; }
 
     .card-meta {
       display: grid;
       grid-template-columns: 1fr 1fr;
       gap: 8px;
       margin-bottom: 12px;
-      font-size: 12px;
+      font-size: 0.75rem;
+      font-family: 'JetBrains Mono', monospace;
     }
     .meta-item {
       display: flex;
       justify-content: space-between;
     }
-    .meta-key { color: var(--text-dim); }
-    .meta-val { color: var(--text); font-weight: 500; }
-    .meta-val.cost { color: var(--green); }
+    .meta-key { color: var(--text-muted); }
+    .meta-val { color: var(--text-dim); font-weight: 500; }
+    .meta-val.cost { color: var(--accent); }
 
     /* Context bar */
     .context-bar-container {
       margin-bottom: 12px;
     }
     .context-bar-label {
-      font-size: 11px;
-      color: var(--text-dim);
+      font-size: 0.7rem;
+      color: var(--text-muted);
       margin-bottom: 4px;
       display: flex;
       justify-content: space-between;
+      font-family: 'JetBrains Mono', monospace;
     }
     .context-bar {
       height: 4px;
@@ -226,61 +301,78 @@
       margin-bottom: 10px;
     }
     .file-tag {
-      font-size: 11px;
+      font-size: 0.7rem;
       padding: 2px 6px;
       background: var(--bar-bg);
       border-radius: 3px;
-      color: var(--blue);
+      color: var(--teal);
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    /* Git branch */
+    .git-branch {
+      font-size: 0.7rem;
+      color: var(--text-muted);
+      margin-top: 2px;
+      font-family: 'JetBrains Mono', monospace;
     }
 
     /* Recent log */
     .log-toggle {
-      font-size: 11px;
-      color: var(--text-dim);
+      font-size: 0.7rem;
+      color: var(--text-muted);
       cursor: pointer;
       border: none;
       background: none;
-      font-family: inherit;
+      font-family: 'JetBrains Mono', monospace;
       padding: 4px 0;
     }
-    .log-toggle:hover { color: var(--text); }
+    .log-toggle:hover { color: var(--text-dim); }
+    .log-toggle:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+      border-radius: 2px;
+    }
     .log-feed {
       margin-top: 8px;
       max-height: 200px;
       overflow-y: auto;
-      font-size: 11px;
+      font-size: 0.7rem;
       line-height: 1.6;
+      font-family: 'JetBrains Mono', monospace;
     }
     .log-entry {
       display: flex;
       gap: 8px;
-      color: var(--text-dim);
+      color: var(--text-muted);
     }
-    .log-time { color: var(--text-dim); flex-shrink: 0; min-width: 55px; }
+    .log-time { color: var(--text-muted); flex-shrink: 0; min-width: 55px; }
     .log-type { flex-shrink: 0; min-width: 40px; font-weight: 500; }
-    .log-type.tool  { color: var(--blue); }
-    .log-type.think { color: var(--green); }
-    .log-type.user  { color: var(--yellow); }
+    .log-type.tool  { color: var(--teal); }
+    .log-type.think { color: var(--success); }
+    .log-type.user  { color: var(--accent); }
     .log-type.error { color: var(--red); }
     .log-msg {
       white-space: pre-wrap;
       word-break: break-word;
+      color: var(--text-dim);
     }
 
     /* Empty state */
     .empty {
       text-align: center;
       padding: 80px 20px;
-      color: var(--text-dim);
+      color: var(--text-muted);
     }
-    .empty h2 { font-size: 18px; margin-bottom: 8px; color: var(--text); }
-    .empty p { font-size: 13px; }
-
-    /* Git branch */
-    .git-branch {
-      font-size: 11px;
+    .empty h2 {
+      font-size: 1.1rem;
+      margin-bottom: 8px;
       color: var(--text-dim);
-      margin-top: 2px;
+      font-family: 'Poppins', sans-serif;
+    }
+    .empty p {
+      font-size: 0.85rem;
+      font-family: 'JetBrains Mono', monospace;
     }
 
     /* Scrollbar */
@@ -297,6 +389,15 @@
   <script>
     const { useState, useEffect, useCallback } = React;
     const e = React.createElement;
+
+    // --- Status emoji map (conductor conventions) ---
+    const STATUS_EMOJI = {
+      thinking: '\u26A1',
+      waiting: '\uD83D\uDD34',
+      error: '\u274C',
+      idle: '\u23F8\uFE0F',
+      'idle-stale': '\uD83D\uDC7B'
+    };
 
     function formatNumber(n) {
       if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M';
@@ -324,135 +425,155 @@
     }
 
     function contextPercent(lastTurnInputTotal) {
-      // 200K context window
       return Math.min(100, (lastTurnInputTotal / 200_000) * 100);
     }
 
     function contextBarColor(pct) {
       if (pct > 80) return 'var(--red)';
-      if (pct > 50) return 'var(--yellow)';
-      return 'var(--blue)';
+      if (pct > 50) return 'var(--accent)';
+      return 'var(--teal)';
+    }
+
+    // --- Persona initial from label ---
+    function personaInitial(label) {
+      if (!label) return '?';
+      const name = label.split('/').pop().split('-')[0];
+      return name.charAt(0).toUpperCase();
     }
 
     function SessionCard({ session }) {
       const [expanded, setExpanded] = useState(false);
       const st = session.status;
       const pct = contextPercent(session.lastTurnInputTotal || session.tokensIn);
+      const emoji = STATUS_EMOJI[st] || '';
 
       return e('div', { className: 'card status-' + st },
-        // Header
-        e('div', { className: 'card-header' },
-          e('div', null,
-            e('div', { className: 'card-label',
-              style: session.cwd ? { cursor: 'pointer' } : {},
-              onClick: session.cwd ? (ev) => {
-                fetch('/api/open-folder', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ path: session.cwd })
-                }).then(r => {
-                  if (!r.ok) {
-                    const el = ev.currentTarget;
-                    el.style.textDecoration = 'line-through';
-                    el.title = 'Folder not found: ' + session.cwd;
-                  }
-                });
-              } : undefined,
-              title: session.cwd || ''
-            },
-              e('span', { className: 'status-dot ' + st }),
-              session.label || session.sessionId.substring(0, 8)
+        // Top row: persona slot + header
+        e('div', { className: 'card-top' },
+          // Persona slot
+          e('div', { className: 'persona-slot' },
+            e('div', { className: 'persona-avatar' }, personaInitial(session.label)),
+            e('span', { className: 'persona-name' }, 'Unassigned')
+          ),
+
+          // Header content
+          e('div', { className: 'card-header' },
+            e('div', null,
+              e('div', { className: 'card-label',
+                style: session.cwd ? { cursor: 'pointer' } : {},
+                onClick: session.cwd ? (ev) => {
+                  fetch('/api/open-folder', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ path: session.cwd })
+                  }).then(r => {
+                    if (!r.ok) {
+                      const el = ev.currentTarget;
+                      el.style.textDecoration = 'line-through';
+                      el.title = 'Folder not found: ' + session.cwd;
+                    }
+                  });
+                } : undefined,
+                title: session.cwd || ''
+              },
+                e('span', { className: 'status-dot ' + st }),
+                session.label || session.sessionId.substring(0, 8)
+              ),
+              session.gitBranch ? e('div', { className: 'git-branch' }, session.gitBranch) : null
             ),
-            session.gitBranch ? e('div', { className: 'git-branch' }, session.gitBranch) : null
-          ),
-          e('div', { style: { display: 'flex', gap: '6px', alignItems: 'center' } },
-            session.permissionMode === 'bypassPermissions'
-              ? e('span', { className: 'perm-badge bypass' }, 'YOLO')
-              : session.permissionMode === 'acceptEdits'
-              ? e('span', { className: 'perm-badge accept-edits' }, 'AUTO-EDIT')
-              : null,
-            e('span', { className: 'card-status ' + st }, st)
-          )
-        ),
-
-        // Meta grid
-        e('div', { className: 'card-meta' },
-          e('div', { className: 'meta-item' },
-            e('span', { className: 'meta-key' }, 'Model'),
-            e('span', { className: 'meta-val' }, session.model || '-')
-          ),
-          e('div', { className: 'meta-item' },
-            e('span', { className: 'meta-key' }, 'Cost'),
-            e('span', { className: 'meta-val cost' }, formatCost(session.costUSD))
-          ),
-          e('div', { className: 'meta-item' },
-            e('span', { className: 'meta-key' }, 'Output'),
-            e('span', { className: 'meta-val' }, formatNumber(session.tokensOut))
-          ),
-          e('div', { className: 'meta-item' },
-            e('span', { className: 'meta-key' }, 'Cache Read'),
-            e('span', { className: 'meta-val' }, formatNumber(session.cacheReadIn || 0))
-          ),
-          e('div', { className: 'meta-item' },
-            e('span', { className: 'meta-key' }, 'Turns'),
-            e('span', { className: 'meta-val' }, session.turnCount)
-          ),
-          e('div', { className: 'meta-item' },
-            e('span', { className: 'meta-key' }, 'Last Event'),
-            e('span', { className: 'meta-val' }, timeAgo(session.lastEventAt))
-          )
-        ),
-
-        // Context bar
-        e('div', { className: 'context-bar-container' },
-          e('div', { className: 'context-bar-label' },
-            e('span', null, 'Context Window'),
-            e('span', null, pct.toFixed(0) + '%')
-          ),
-          e('div', { className: 'context-bar' },
-            e('div', { className: 'context-bar-fill', style: {
-              width: pct + '%',
-              background: contextBarColor(pct)
-            }})
-          )
-        ),
-
-        // Active files
-        session.activeFiles.length > 0
-          ? e('div', { className: 'active-files' },
-              session.activeFiles.map((f, i) => e('span', { key: i, className: 'file-tag' }, f))
+            e('div', { style: { display: 'flex', gap: '6px', alignItems: 'center', flexShrink: 0 } },
+              session.permissionMode === 'bypassPermissions'
+                ? e('span', { className: 'perm-badge bypass' }, 'YOLO')
+                : session.permissionMode === 'acceptEdits'
+                ? e('span', { className: 'perm-badge accept-edits' }, 'AUTO-EDIT')
+                : null,
+              e('span', { className: 'card-status ' + st }, emoji + ' ' + st)
             )
-          : null,
+          )
+        ),
 
-        // Subagents
-        session.subagents && session.subagents.length > 0
-          ? e('div', { className: 'subagents' },
-              e('div', { className: 'subagents-header' }, 'Subagents (' + session.subagents.length + ')'),
-              session.subagents.map((sub, i) =>
-                e('div', { key: i, className: 'subagent' },
-                  e('span', { className: 'subagent-dot ' + sub.status }),
-                  e('span', { className: 'subagent-task' }, sub.task || sub.agentId),
-                  e('span', { className: 'subagent-tokens' }, formatNumber(sub.tokensOut) + ' out')
+        // Card body
+        e('div', { className: 'card-body' },
+          // Meta grid
+          e('div', { className: 'card-meta' },
+            e('div', { className: 'meta-item' },
+              e('span', { className: 'meta-key' }, 'Model'),
+              e('span', { className: 'meta-val' }, session.model || '-')
+            ),
+            e('div', { className: 'meta-item' },
+              e('span', { className: 'meta-key' }, 'Cost'),
+              e('span', { className: 'meta-val cost' }, formatCost(session.costUSD))
+            ),
+            e('div', { className: 'meta-item' },
+              e('span', { className: 'meta-key' }, 'Output'),
+              e('span', { className: 'meta-val' }, formatNumber(session.tokensOut))
+            ),
+            e('div', { className: 'meta-item' },
+              e('span', { className: 'meta-key' }, 'Cache Read'),
+              e('span', { className: 'meta-val' }, formatNumber(session.cacheReadIn || 0))
+            ),
+            e('div', { className: 'meta-item' },
+              e('span', { className: 'meta-key' }, 'Turns'),
+              e('span', { className: 'meta-val' }, session.turnCount)
+            ),
+            e('div', { className: 'meta-item' },
+              e('span', { className: 'meta-key' }, 'Last Event'),
+              e('span', { className: 'meta-val' }, timeAgo(session.lastEventAt))
+            )
+          ),
+
+          // Context bar
+          e('div', { className: 'context-bar-container' },
+            e('div', { className: 'context-bar-label' },
+              e('span', null, 'Context Window'),
+              e('span', null, pct.toFixed(0) + '%')
+            ),
+            e('div', { className: 'context-bar' },
+              e('div', { className: 'context-bar-fill', style: {
+                width: pct + '%',
+                background: contextBarColor(pct)
+              }})
+            )
+          ),
+
+          // Active files
+          session.activeFiles.length > 0
+            ? e('div', { className: 'active-files' },
+                session.activeFiles.map((f, i) => e('span', { key: i, className: 'file-tag' }, f))
+              )
+            : null,
+
+          // Subagents
+          session.subagents && session.subagents.length > 0
+            ? e('div', { className: 'subagents' },
+                e('div', { className: 'subagents-header' }, 'Subagents (' + session.subagents.length + ')'),
+                session.subagents.map((sub, i) =>
+                  e('div', { key: i, className: 'subagent' },
+                    e('span', { className: 'subagent-dot ' + sub.status }),
+                    e('span', { className: 'subagent-task' }, sub.task || sub.agentId),
+                    e('span', { className: 'subagent-tokens' }, formatNumber(sub.tokensOut) + ' out')
+                  )
                 )
               )
-            )
-          : null,
+            : null,
 
-        // Log toggle + feed
-        e('button', {
-          className: 'log-toggle',
-          onClick: () => setExpanded(!expanded)
-        }, expanded ? '- Hide log' : '+ Show log (' + session.recentLog.length + ')'),
+          // Log toggle + feed
+          e('button', {
+            className: 'log-toggle',
+            'aria-expanded': expanded,
+            onClick: () => setExpanded(!expanded)
+          }, expanded ? '- Hide log' : '+ Show log (' + session.recentLog.length + ')'),
 
-        expanded ? e('div', { className: 'log-feed' },
-          session.recentLog.slice().reverse().map((entry, i) =>
-            e('div', { key: i, className: 'log-entry' },
-              e('span', { className: 'log-time' }, formatTime(entry.time)),
-              e('span', { className: 'log-type ' + entry.type }, entry.type),
-              e('span', { className: 'log-msg' }, entry.msg)
+          expanded ? e('div', { className: 'log-feed', role: 'log' },
+            session.recentLog.slice().reverse().map((entry, i) =>
+              e('div', { key: i, className: 'log-entry' },
+                e('span', { className: 'log-time' }, formatTime(entry.time)),
+                e('span', { className: 'log-type ' + entry.type }, entry.type),
+                e('span', { className: 'log-msg' }, entry.msg)
+              )
             )
-          )
-        ) : null
+          ) : null
+        )
       );
     }
 
@@ -467,7 +588,7 @@
             setSessions(data);
             setLastFetch(new Date());
           })
-          .catch(() => {}); // silent on error
+          .catch(() => {});
       }, []);
 
       useEffect(() => {
@@ -483,9 +604,11 @@
       return e('div', null,
         // Header
         e('div', { className: 'header' },
-          e('div', { className: 'header-title' },
-            e('span', { className: 'dot' }),
-            'Claude Code Dashboard'
+          e('div', { className: 'header-left' },
+            e('div', { className: 'header-title' },
+              e('span', { className: 'dot' }),
+              'claude-conductor'
+            )
           ),
           e('div', { className: 'header-stats' },
             e('span', null,
@@ -494,7 +617,7 @@
             ),
             e('span', null,
               e('span', { className: 'stat-label' }, 'Output'),
-              e('span', { className: 'stat-value' }, formatNumber(totalOut) + ' out')
+              e('span', { className: 'stat-value' }, formatNumber(totalOut))
             ),
             e('span', null,
               e('span', { className: 'stat-label' }, 'Cost'),
@@ -507,7 +630,7 @@
         sessions.length === 0
           ? e('div', { className: 'empty' },
               e('h2', null, 'No sessions detected'),
-              e('p', null, 'Start a Claude Code session in any terminal to see it here.')
+              e('p', null, 'Start a Claude Code session to see it here.')
             )
           : e('div', { className: 'grid' },
               sessions.map(s => e(SessionCard, { key: s.sessionId, session: s }))
