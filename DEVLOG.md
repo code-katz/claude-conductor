@@ -5,6 +5,44 @@ Auto-maintained via [claude-devlog-skill](https://github.com/code-katz/claude-de
 
 ---
 
+## [2026-03-30] v2: Live dashboard via Stargx fork, SESSIONS.md integration, auto-linking
+
+**Category:** `milestone`
+**Tags:** `v2`, `live-dashboard`, `fork`, `stargx`, `auto-linking`, `status-detection`, `node-js`
+
+### Summary
+Forked [Stargx/claude-code-dashboard](https://github.com/Stargx/claude-code-dashboard) (MIT, 996 lines) and rebuilt conductor around it. The live dashboard provides real-time session monitoring, token/cost tracking, and auto-detection of Claude Code sessions. Built 5 layers on top: Code Katz branding, SESSIONS.md parsing, auto-linking, enhanced status detection, and CLI integration.
+
+### Detail
+
+**Decision:** Fork and extend rather than build from scratch. The Stargx dashboard already solved two of three planned features (real-time monitoring, token tracking). Building three things separately and stitching them later would have been more work than starting from something that already works. This consolidated three separate feature specs into one effort.
+
+**What the fork provides:** `watcher.js` (JSONL parser, chokidar file watcher, Express API, status detection, token/cost aggregation) and a React (CDN) dashboard with session tiles, context window bars, and subagent tracking. 2 dependencies: express, chokidar.
+
+**What we built on top:**
+- Sprint 0 (Quinn): fork verified and committed, no existing files modified
+- Sprint 1 (Sasha): Code Katz branding (colors, fonts, persona slots, conductor emoji set, pulsing amber for waiting state)
+- Sprint 2A (Akira): SESSIONS.md parser with git-root walk, auto-linking via JSONL first-message scan, enhanced status detection (coding/planning/reviewing/needs_input/disconnected), new API endpoints (`/api/conductor`, `/api/links`), enriched `/api/sessions` with conductor data
+- Sprint 2B (Akira): CLI commands (`dashboard --live`, `link`, `unlink`), frontend persona/task enrichment, merge order visualization
+- Sprint 3A (Robin): 26 integration tests in `tests/dashboard-live.sh`
+- Sprint 3B (Quinn): `install.sh --with-dashboard`, docs, attribution
+
+**Key product decisions:**
+1. Static dashboard preserved as fallback (zero-dep CLI stays functional without Node.js)
+2. `--with-dashboard` opt-in install flag
+3. Auto-linking over manual linking (scans JSONL first user messages for session patterns)
+4. CLI default unchanged (`status`, not dashboard)
+5. Shell-based tests only (no Jest)
+
+**Test coverage:** 157 tests total (104 CLI + 27 static dashboard + 26 live dashboard).
+
+### Related
+- Plan: `plans/2026-03-30-v2-fork-and-build-execution.md`
+- Design doc: `docs/2026-03-30-v2-fork-and-build-plan.md`
+- Fork source: [Stargx/claude-code-dashboard](https://github.com/Stargx/claude-code-dashboard) (MIT)
+
+---
+
 ## [2026-03-29] v0.2: Static HTML dashboard, conflict detection, persona icons
 
 **Category:** `milestone`

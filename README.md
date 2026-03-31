@@ -291,24 +291,57 @@ claude-conductor/
 - Bash 3.2+
 - [Claude Code](https://claude.ai/code)
 - [claude-team-cli](https://github.com/code-katz/claude-team-cli) (recommended, for personas and `/parallel`)
+- Node.js 18+ (optional, for live dashboard)
+
+---
+
+## Live Dashboard
+
+The conductor includes a real-time web dashboard that auto-detects your Claude Code sessions, tracks token usage and costs, and overlays persona/task data from SESSIONS.md.
+
+```bash
+# Install with dashboard support
+bash install.sh --with-dashboard
+
+# Start the live dashboard
+claude-conductor dashboard --live
+
+# Stop it
+claude-conductor dashboard --live --stop
+```
+
+The live dashboard provides:
+- Real-time session monitoring (2-second polling)
+- Per-session token counts and cost tracking
+- Context window usage bars
+- Auto-linking of Claude Code sessions to conductor personas
+- Conductor-aware status (coding, planning, reviewing, needs_input)
+- Merge order visualization from SESSIONS.md
+
+The static HTML dashboard (`claude-conductor dashboard --open`) remains available as a zero-dependency fallback.
+
+Live dashboard based on [claude-code-dashboard](https://github.com/Stargx/claude-code-dashboard) by Stargx (MIT).
 
 ---
 
 ## Roadmap
 
-### v0.1 (current)
+### v0.2 (current)
 
 - SESSIONS.md format with active/completed tables and session log
 - Slash commands: `/conductor`, `/sessions`, `/conductor start`, `/conductor update`, `/conductor done`, `/conductor merge`, `/conductor abandon`, `/conductor clear`, `/conductor plan`
-- CLI: `claude-conductor status`, `claude-conductor init`, `claude-conductor help`
+- CLI: `claude-conductor status`, `init`, `start`, `update`, `done`, `merge`, `abandon`, `clear`, `conflicts`, `dashboard`, `link`, `unlink`, `help`
+- Static HTML dashboard with file conflict detection
+- Live Node.js dashboard with real-time session monitoring and token tracking
+- Auto-linking of JSONL sessions to conductor personas
+- Enhanced status detection (coding/planning/reviewing)
 - Dependency tracking with unblock notifications
 - Merge order enforcement
 - Integration hooks for devlog, roadmap, and todo skills
 
 ### Later
 
-- **Web dashboard:** lightweight localhost web view (Python FastAPI) showing session status with auto-refresh
-- **Cost tracking:** per-session token usage tracking with budget alerts
+- **Claude Code hooks:** `SessionStart` hook to auto-assign personas on new session creation
 - **Git integration:** detect file conflicts between sessions before they happen
 - **Paperclip bridge:** adapter to sync session state into a Paperclip instance for users who want the full orchestration platform
 

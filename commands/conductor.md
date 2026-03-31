@@ -13,5 +13,9 @@ Read SESSIONS.md and display the compact status view showing all active sessions
 - `/conductor abandon <#>` — mark a session as abandoned
 - `/conductor plan` — generate a /parallel plan and auto-register sessions
 - `/conductor clear` — archive completed sessions and reset
+- `/conductor dashboard --live` — start the real-time Node.js dashboard
+- `/conductor dashboard --live --stop` — stop the live dashboard
+- `/conductor link <#> <session_id>` — link a Claude Code session to a conductor session
+- `/conductor unlink <#>` — remove a session link
 
 See the conductor SKILL.md for full behavior specifications.

@@ -190,24 +190,44 @@ These commands work from any terminal (not just Claude Code):
 | `claude-conductor abandon <#> [reason]` | Mark a session as abandoned |
 | `claude-conductor clear` | Archive completed sessions, renumber remaining |
 | `claude-conductor conflicts` | Check for file scope overlaps between sessions |
-| `claude-conductor dashboard` | Generate HTML dashboard (alias: `dash`) |
-| `claude-conductor dashboard --open` | Generate and open dashboard in browser |
+| `claude-conductor dashboard` | Generate static HTML dashboard (alias: `dash`) |
+| `claude-conductor dashboard --open` | Generate and open static dashboard in browser |
+| `claude-conductor dashboard --live` | Start real-time Node.js dashboard |
+| `claude-conductor dashboard --live --stop` | Stop the live dashboard |
+| `claude-conductor link <#> <session_id>` | Link a Claude Code session to a conductor session |
+| `claude-conductor unlink <#>` | Remove a session link |
 | `claude-conductor init` | Create SESSIONS.md in the current project |
 | `claude-conductor help` | Show full command reference |
 
-### Dashboard
+### Live Dashboard
 
-The dashboard generates a self-contained HTML file (`.conductor-dashboard.html`) in your project root. Open it in a browser for a persistent, auto-refreshing view of all sessions with persona icons, status badges, dependency visualization, and conflict warnings.
+The live dashboard is a real-time Node.js web application that auto-detects your Claude Code sessions, tracks token usage and costs, and overlays persona/task data from SESSIONS.md.
 
 ```bash
-# Generate and open the dashboard
+# Start the live dashboard (requires Node.js 18+)
+claude-conductor dashboard --live
+
+# Stop it
+claude-conductor dashboard --live --stop
+```
+
+Features: 2-second polling, per-session token/cost tracking, context window bars, auto-linking to conductor personas, conductor-aware status (coding/planning/reviewing/needs_input), merge order visualization.
+
+The live dashboard runs at `http://localhost:3001`. For remote access from a phone or another machine, use a tunnel such as Tailscale Funnel or ngrok. This is outside the scope of conductor.
+
+### Static Dashboard
+
+The static dashboard generates a self-contained HTML file (`.conductor-dashboard.html`) in your project root. It works without Node.js and serves as a fallback.
+
+```bash
+# Generate and open the static dashboard
 claude-conductor dashboard --open
 
 # After the first run, the dashboard auto-regenerates on every status change
 claude-conductor update 1 coding   # dashboard updates silently
 ```
 
-The dashboard uses a dark theme matching the Code Katz visual system. It loads persona avatars from GitHub and auto-refreshes every 5 seconds.
+The static dashboard uses the Code Katz dark theme with persona avatars and auto-refreshes every 5 seconds.
 
 ### Conflict detection
 

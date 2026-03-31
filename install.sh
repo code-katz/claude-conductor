@@ -59,7 +59,22 @@ chmod +x "$GEN_SRC"
 echo "$(green "✓") Dashboard generator symlinked: $(dim "$GEN_DST → $GEN_SRC")"
 echo ""
 
-# 4. PATH check
+# 4. Live dashboard (optional, requires Node.js)
+if [[ "${1:-}" == "--with-dashboard" ]]; then
+  DASHBOARD_DIR="$REPO_DIR/dashboard"
+  if [[ -f "$DASHBOARD_DIR/package.json" ]]; then
+    echo "Installing live dashboard dependencies..."
+    cd "$DASHBOARD_DIR" && npm install --silent 2>/dev/null
+    echo "$(green "✓") Dashboard: installed ($(dim "node_modules in $DASHBOARD_DIR"))"
+  else
+    echo "$(yellow "!") Dashboard: package.json not found. Skipping."
+  fi
+else
+  echo "$(dim "Dashboard: skipped (run install.sh --with-dashboard to enable)")"
+fi
+echo ""
+
+# 5. PATH check
 if echo "$PATH" | grep -q "$HOME/.local/bin"; then
   echo "$(green "✓") ~/.local/bin is already on your PATH."
 else
@@ -80,6 +95,7 @@ echo ""
 echo "Quick start:"
 echo "  claude-conductor init              $(dim "# create SESSIONS.md in your project")"
 echo "  claude-conductor status            $(dim "# show all active sessions")"
+echo "  claude-conductor dashboard --live  $(dim "# real-time Node.js dashboard")"
 echo "  claude-conductor help              $(dim "# full command reference")"
 echo ""
 echo "In Claude Code:"
