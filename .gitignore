@@ -6,6 +6,11 @@ gtm.md
 # Draft blog posts
 publish/posts/
 
-# Generated dashboard
+# Generated dashboard (static)
 .conductor-dashboard.html
 .conductor-server.pid
+
+# Live dashboard (Node.js)
+dashboard/node_modules/
+.conductor-links.json
+.conductor-live-server.pid
