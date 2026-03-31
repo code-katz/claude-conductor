@@ -19,6 +19,157 @@ function getPricing(model) {
   return PRICING['claude-sonnet-4-6']; // fallback
 }
 
+// --- SESSIONS.md Parsing ---
+let conductorData = { activeSessions: [], mergeOrder: '', projectRoot: '' };
+let conductorLinks = new Map(); // conductorSessionNumber -> { sessionId, persona, task, files, status, dependsOn }
+
+function findSessionsFile(startDir) {
+  let dir = startDir || process.cwd();
+  while (dir !== path.dirname(dir)) {
+    if (fs.existsSync(path.join(dir, '.git'))) {
+      const sf = path.join(dir, 'SESSIONS.md');
+      if (fs.existsSync(sf)) return { file: sf, root: dir };
+      return { file: null, root: dir };
+    }
+    dir = path.dirname(dir);
+  }
+  return { file: null, root: startDir || process.cwd() };
+}
+
+function parseSessionsTable(content) {
+  const lines = content.split('\n');
+  const sessions = [];
+  let inActiveTable = false;
+  let headerPassed = false;
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (trimmed.startsWith('## Active Sessions')) {
+      inActiveTable = true;
+      headerPassed = false;
+      continue;
+    }
+    if (inActiveTable && trimmed.startsWith('##')) break; // next section
+    if (!inActiveTable) continue;
+    if (!trimmed.startsWith('|')) continue;
+    // Skip header row and separator
+    if (trimmed.includes('---')) { headerPassed = true; continue; }
+    if (!headerPassed) continue;
+
+    const cols = trimmed.split('|').map(c => c.trim()).filter(c => c !== '');
+    if (cols.length < 6) continue;
+
+    sessions.push({
+      number: parseInt(cols[0], 10),
+      persona: cols[1] || '',
+      task: cols[2] || '',
+      files: cols[3] || '',
+      status: cols[4] || '',
+      started: cols[5] || '',
+      dependsOn: cols[6] || '',
+      notes: cols[7] || '',
+    });
+  }
+  return sessions;
+}
+
+function parseMergeOrder(content) {
+  const lines = content.split('\n');
+  let inMerge = false;
+  const mergeLines = [];
+  for (const line of lines) {
+    if (line.trim().startsWith('## Merge Order')) { inMerge = true; continue; }
+    if (inMerge && line.trim().startsWith('##')) break;
+    if (inMerge && line.trim()) mergeLines.push(line.trim());
+  }
+  return mergeLines.join('\n');
+}
+
+function loadSessionsFile(filePath) {
+  if (!filePath || !fs.existsSync(filePath)) {
+    conductorData = { activeSessions: [], mergeOrder: '', projectRoot: conductorData.projectRoot };
+    return;
+  }
+  try {
+    const content = fs.readFileSync(filePath, 'utf8');
+    conductorData.activeSessions = parseSessionsTable(content);
+    conductorData.mergeOrder = parseMergeOrder(content);
+  } catch (e) {
+    // Silently ignore parse errors
+  }
+}
+
+// --- Auto-linking: JSONL first-message scan ---
+const autoLinks = new Map(); // JSONL sessionId -> { conductorNumber, persona }
+const scannedSessions = new Set(); // sessionIds we've already scanned
+
+function scanSessionForLink(sessionId) {
+  if (scannedSessions.has(sessionId)) return;
+  const session = sessions.get(sessionId);
+  if (!session) return;
+
+  // Look through recent log for user messages that contain session patterns
+  for (const entry of session.recentLog) {
+    if (entry.type !== 'user') continue;
+    const text = entry.msg || '';
+
+    // Match patterns: "session #1", "Session 1", "#1 Akira", "You are session #2 (Sasha)"
+    const sessionMatch = text.match(/[Ss]ession\s*#?(\d+)/);
+    if (sessionMatch) {
+      const num = parseInt(sessionMatch[1], 10);
+      // Try to extract persona: "(Sasha)", "/sasha", "Persona: Sasha"
+      const personaMatch = text.match(/\((\w+)\)|\/(\w+)|[Pp]ersona:\s*(\w+)/);
+      const persona = personaMatch ? (personaMatch[1] || personaMatch[2] || personaMatch[3]) : '';
+      autoLinks.set(sessionId, { conductorNumber: num, persona });
+      scannedSessions.add(sessionId);
+      return;
+    }
+
+    // Match: "/conductor u 1", "/conductor update 1"
+    const cmdMatch = text.match(/conductor\s+u(?:pdate)?\s+(\d+)/i);
+    if (cmdMatch) {
+      const num = parseInt(cmdMatch[1], 10);
+      autoLinks.set(sessionId, { conductorNumber: num, persona: '' });
+      scannedSessions.add(sessionId);
+      return;
+    }
+  }
+}
+
+function loadLinksFile(projectRoot) {
+  const linksPath = path.join(projectRoot, '.conductor-links.json');
+  if (!fs.existsSync(linksPath)) return;
+  try {
+    const data = JSON.parse(fs.readFileSync(linksPath, 'utf8'));
+    if (Array.isArray(data)) {
+      for (const entry of data) {
+        if (entry.sessionId && entry.conductorNumber) {
+          autoLinks.set(entry.sessionId, {
+            conductorNumber: entry.conductorNumber,
+            persona: entry.persona || '',
+          });
+          scannedSessions.add(entry.sessionId);
+        }
+      }
+    }
+  } catch (e) {
+    // Ignore malformed file
+  }
+}
+
+function saveLinksFile(projectRoot) {
+  const linksPath = path.join(projectRoot, '.conductor-links.json');
+  const data = [];
+  for (const [sessionId, link] of autoLinks) {
+    data.push({ sessionId, conductorNumber: link.conductorNumber, persona: link.persona });
+  }
+  try {
+    fs.writeFileSync(linksPath, JSON.stringify(data, null, 2) + '\n');
+  } catch (e) {
+    // Silently ignore write errors
+  }
+}
+
 // --- Session State ---
 const sessions = new Map();
 const fileOffsets = new Map(); // path -> byte offset
@@ -206,10 +357,16 @@ function processEvent(event, projectHash) {
   }
 }
 
+// --- Enhanced Status Detection ---
+// Maps dashboard states to conductor-aware statuses
+const EDIT_TOOLS = new Set(['Edit', 'Write', 'NotebookEdit']);
+const TEST_PATTERNS = /\b(test|jest|pytest|vitest|mocha|lint|eslint|ruff|biome|check)\b/i;
+
 function deriveStatus(session) {
   if (!session.lastEventAt) return 'idle';
   const elapsed = Date.now() - new Date(session.lastEventAt).getTime();
 
+  if (elapsed > 300_000) return 'idle-stale'; // 5 min -> disconnected
   if (elapsed > 60_000) return 'idle';
 
   // Check for error in recent log
@@ -223,10 +380,38 @@ function deriveStatus(session) {
       if (session.lastContentTypes.includes('thinking')) return 'thinking';
     }
     if (session.lastEventType === 'progress') return 'thinking';
-    if (session.lastEventType === 'user') return 'thinking'; // just sent input, waiting for response
+    if (session.lastEventType === 'user') return 'thinking';
   }
 
   return 'idle';
+}
+
+// Conductor-enriched status: refines 'thinking' into coding/planning/reviewing
+function deriveConductorStatus(session) {
+  const base = deriveStatus(session);
+  if (base !== 'thinking') {
+    if (base === 'waiting') return 'needs_input';
+    if (base === 'idle-stale') return 'disconnected';
+    return base;
+  }
+
+  // Check recent tool use to distinguish coding vs planning vs reviewing
+  const recentTools = session.recentLog.slice(-5);
+  for (let i = recentTools.length - 1; i >= 0; i--) {
+    const entry = recentTools[i];
+    if (entry.type !== 'tool') continue;
+
+    const toolName = entry.msg.split(':')[0].trim();
+
+    // Bash with test/lint commands -> reviewing
+    if (toolName === 'Bash' && TEST_PATTERNS.test(entry.msg)) return 'reviewing';
+
+    // Write/Edit tools -> coding
+    if (EDIT_TOOLS.has(toolName)) return 'coding';
+  }
+
+  // No edit tools in recent history -> planning (reading/exploring)
+  return 'planning';
 }
 
 // --- JSONL File Processing ---
@@ -277,17 +462,56 @@ app.post('/api/open-folder', express.json(), (req, res) => {
 });
 
 app.get('/api/sessions', (req, res) => {
+  // Run auto-linking scan on all sessions
+  for (const sessionId of sessions.keys()) {
+    scanSessionForLink(sessionId);
+  }
+  // Save links if any new ones were found
+  if (autoLinks.size > 0 && conductorData.projectRoot) {
+    saveLinksFile(conductorData.projectRoot);
+  }
+
   // Build list with derived status
   const all = [];
   for (const session of sessions.values()) {
     const status = deriveStatus(session);
+    const conductorStatus = deriveConductorStatus(session);
     // Convert subagents object to sorted array, only include active ones
     const subagentList = Object.values(session.subagents)
       .filter(s => s.status === 'thinking')
       .sort((a, b) => new Date(b.lastEventAt || 0) - new Date(a.lastEventAt || 0));
+
+    // Enrich with conductor data if linked
+    const link = autoLinks.get(session.sessionId);
+    let conductor = null;
+    if (link) {
+      const csession = conductorData.activeSessions.find(s => s.number === link.conductorNumber);
+      if (csession) {
+        conductor = {
+          number: csession.number,
+          persona: csession.persona,
+          task: csession.task,
+          files: csession.files,
+          conductorStatus: csession.status,
+          dependsOn: csession.dependsOn,
+        };
+      } else {
+        conductor = {
+          number: link.conductorNumber,
+          persona: link.persona,
+          task: '',
+          files: '',
+          conductorStatus: '',
+          dependsOn: '',
+        };
+      }
+    }
+
     all.push({
       ...session,
       status,
+      conductorStatus,
+      conductor,
       costUSD: Math.round(session.costUSD * 10000) / 10000,
       subagents: subagentList,
     });
@@ -295,13 +519,11 @@ app.get('/api/sessions', (req, res) => {
 
   // Active sessions (thinking/waiting/error) always shown individually.
   // Idle sessions: only show the most recent per project label.
-  const active = all.filter(s => s.status !== 'idle');
-  const idle = all.filter(s => s.status === 'idle');
-  // Collect labels that already have an active session
+  const active = all.filter(s => s.status !== 'idle' && s.status !== 'idle-stale');
+  const idle = all.filter(s => s.status === 'idle' || s.status === 'idle-stale');
   const activeLabels = new Set(active.map(s => s.label));
   const latestIdleByLabel = new Map();
   for (const s of idle) {
-    // Skip idle sessions if that project already has an active session
     if (activeLabels.has(s.label)) continue;
     const existing = latestIdleByLabel.get(s.label);
     if (!existing || new Date(s.lastEventAt || 0) > new Date(existing.lastEventAt || 0)) {
@@ -310,10 +532,8 @@ app.get('/api/sessions', (req, res) => {
   }
 
   const result = [...active, ...latestIdleByLabel.values()];
-  // Sort: active today first (alphabetical), then inactive today (alphabetical)
   const todayStart = new Date();
   todayStart.setHours(0, 0, 0, 0);
-  // Mark idle sessions not active today as 'idle-stale'
   for (const s of result) {
     if (s.status === 'idle' && (!s.lastEventAt || new Date(s.lastEventAt) < todayStart)) {
       s.status = 'idle-stale';
@@ -322,15 +542,55 @@ app.get('/api/sessions', (req, res) => {
   result.sort((a, b) => {
     const aToday = a.lastEventAt && new Date(a.lastEventAt) >= todayStart ? 1 : 0;
     const bToday = b.lastEventAt && new Date(b.lastEventAt) >= todayStart ? 1 : 0;
-    if (aToday !== bToday) return bToday - aToday; // active today first
+    if (aToday !== bToday) return bToday - aToday;
     return (a.label || '').localeCompare(b.label || '');
   });
   res.json(result);
 });
 
+// --- Conductor API endpoints ---
+app.get('/api/conductor', (req, res) => {
+  res.json({
+    projectRoot: conductorData.projectRoot,
+    activeSessions: conductorData.activeSessions,
+    mergeOrder: conductorData.mergeOrder,
+  });
+});
+
+app.get('/api/links', (req, res) => {
+  const links = [];
+  for (const [sessionId, link] of autoLinks) {
+    links.push({ sessionId, conductorNumber: link.conductorNumber, persona: link.persona });
+  }
+  res.json(links);
+});
+
 // --- Start ---
 const WATCH_DIR = path.join(os.homedir(), '.claude', 'projects');
-const PORT = 3001;
+const PORT = process.env.PORT || 3001;
+
+// Find and load SESSIONS.md
+const { file: sessionsFile, root: projectRoot } = findSessionsFile(process.cwd());
+conductorData.projectRoot = projectRoot;
+if (sessionsFile) {
+  loadSessionsFile(sessionsFile);
+  console.log(`SESSIONS.md: ${sessionsFile} (${conductorData.activeSessions.length} active)`);
+
+  // Watch for changes
+  const sessionsWatcher = chokidar.watch(sessionsFile, {
+    persistent: true,
+    awaitWriteFinish: { stabilityThreshold: 200, pollInterval: 100 },
+  });
+  sessionsWatcher.on('change', () => loadSessionsFile(sessionsFile));
+} else {
+  console.log('SESSIONS.md: not found (conductor features disabled)');
+}
+
+// Load existing manual links
+loadLinksFile(projectRoot);
+if (autoLinks.size > 0) {
+  console.log(`Links: ${autoLinks.size} session(s) linked`);
+}
 
 console.log(`Watching: ${WATCH_DIR}`);
 console.log(`Dashboard: http://localhost:${PORT}`);
