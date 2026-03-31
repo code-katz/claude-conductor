@@ -358,6 +358,51 @@
       color: var(--text-dim);
     }
 
+    /* Conductor task bar */
+    .conductor-task {
+      font-size: 0.72rem;
+      color: var(--text-dim);
+      padding: 6px 16px;
+      background: var(--bg-card-header);
+      border-top: 1px solid var(--border);
+      line-height: 1.4;
+    }
+    .conductor-task .task-label {
+      color: var(--text-muted);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.65rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .conductor-files {
+      font-size: 0.65rem;
+      color: var(--text-muted);
+      font-family: 'JetBrains Mono', monospace;
+      margin-top: 2px;
+    }
+
+    /* Merge order section */
+    .merge-order {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 16px 20px;
+      margin: 0 32px 24px;
+    }
+    .merge-order-title {
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: var(--accent);
+      margin-bottom: 8px;
+      font-family: 'Poppins', sans-serif;
+    }
+    .merge-order-text {
+      font-size: 0.75rem;
+      color: var(--text-dim);
+      font-family: 'JetBrains Mono', monospace;
+      white-space: pre-wrap;
+    }
+
     /* Empty state */
     .empty {
       text-align: center;
@@ -446,14 +491,20 @@
       const st = session.status;
       const pct = contextPercent(session.lastTurnInputTotal || session.tokensIn);
       const emoji = STATUS_EMOJI[st] || '';
+      const c = session.conductor;
+      const isLinked = c && c.persona;
+      const personaDisplay = isLinked ? c.persona : 'Unassigned';
+      const conductorStatusDisplay = session.conductorStatus || st;
 
       return e('div', { className: 'card status-' + st },
         // Top row: persona slot + header
         e('div', { className: 'card-top' },
           // Persona slot
           e('div', { className: 'persona-slot' },
-            e('div', { className: 'persona-avatar' }, personaInitial(session.label)),
-            e('span', { className: 'persona-name' }, 'Unassigned')
+            e('div', { className: 'persona-avatar' + (isLinked ? ' linked' : '') },
+              isLinked ? c.persona.charAt(0).toUpperCase() : personaInitial(session.label)
+            ),
+            e('span', { className: 'persona-name' + (isLinked ? ' linked' : '') }, personaDisplay)
           ),
 
           // Header content
@@ -487,10 +538,19 @@
                 : session.permissionMode === 'acceptEdits'
                 ? e('span', { className: 'perm-badge accept-edits' }, 'AUTO-EDIT')
                 : null,
-              e('span', { className: 'card-status ' + st }, emoji + ' ' + st)
+              e('span', { className: 'card-status ' + st }, emoji + ' ' + conductorStatusDisplay)
             )
           )
         ),
+
+        // Conductor task bar (only for linked sessions)
+        isLinked && c.task
+          ? e('div', { className: 'conductor-task' },
+              e('span', { className: 'task-label' }, 'Task: '),
+              c.task,
+              c.files ? e('div', { className: 'conductor-files' }, 'Files: ' + c.files) : null
+            )
+          : null,
 
         // Card body
         e('div', { className: 'card-body' },
@@ -579,9 +639,10 @@
 
     function Dashboard() {
       const [sessions, setSessions] = useState([]);
+      const [conductor, setConductor] = useState(null);
       const [lastFetch, setLastFetch] = useState(null);
 
-      const fetchSessions = useCallback(() => {
+      const fetchAll = useCallback(() => {
         fetch('/api/sessions')
           .then(r => r.json())
           .then(data => {
@@ -589,13 +650,17 @@
             setLastFetch(new Date());
           })
           .catch(() => {});
+        fetch('/api/conductor')
+          .then(r => r.json())
+          .then(data => setConductor(data))
+          .catch(() => {});
       }, []);
 
       useEffect(() => {
-        fetchSessions();
-        const iv = setInterval(fetchSessions, 2000);
+        fetchAll();
+        const iv = setInterval(fetchAll, 2000);
         return () => clearInterval(iv);
-      }, [fetchSessions]);
+      }, [fetchAll]);
 
       const totalCost = sessions.reduce((s, x) => s + x.costUSD, 0);
       const totalOut = sessions.reduce((s, x) => s + x.tokensOut, 0);
@@ -634,7 +699,15 @@
             )
           : e('div', { className: 'grid' },
               sessions.map(s => e(SessionCard, { key: s.sessionId, session: s }))
+            ),
+
+        // Merge order (from SESSIONS.md)
+        conductor && conductor.mergeOrder && conductor.mergeOrder !== 'No dependencies defined.'
+          ? e('div', { className: 'merge-order' },
+              e('div', { className: 'merge-order-title' }, 'Merge Order'),
+              e('div', { className: 'merge-order-text' }, conductor.mergeOrder)
             )
+          : null
       );
     }
 

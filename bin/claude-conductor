@@ -903,8 +903,197 @@ find_available_port() {
   return 1
 }
 
+# Live dashboard (Node.js) — delegates to dashboard/watcher.js
+cmd_dashboard_live() {
+  local script_dir
+  script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  local repo_dir
+  repo_dir="$(dirname "$script_dir")"
+  local watcher="$repo_dir/dashboard/watcher.js"
+  local sf
+  sf="$(find_sessions_file)"
+  local pidfile
+  pidfile="$(dirname "$sf")/.conductor-live-server.pid"
+
+  if ! command -v node >/dev/null 2>&1; then
+    echo ""
+    echo "$(red "Error:") Node.js is required for the live dashboard."
+    echo "  Install Node.js 18+ or use the static dashboard: $(dim "claude-conductor dashboard --open")"
+    echo ""
+    return 1
+  fi
+
+  if [[ ! -f "$watcher" ]]; then
+    echo ""
+    echo "$(red "Error:") watcher.js not found at $watcher"
+    echo "  Run $(dim "install.sh --with-dashboard") to set up the live dashboard."
+    echo ""
+    return 1
+  fi
+
+  # Handle --stop
+  if [[ "${1:-}" == "--stop" ]]; then
+    if [[ -f "$pidfile" ]]; then
+      local pid
+      pid=$(<"$pidfile")
+      if kill -0 "$pid" 2>/dev/null; then
+        kill "$pid" 2>/dev/null || true
+        rm -f "$pidfile"
+        echo ""
+        echo "$(green "✓") Live dashboard stopped."
+        echo ""
+      else
+        rm -f "$pidfile"
+        echo ""
+        echo "$(dim "Server already stopped (stale pidfile removed).")"
+        echo ""
+      fi
+    else
+      echo ""
+      echo "$(dim "No live dashboard running.")"
+      echo ""
+    fi
+    return
+  fi
+
+  # Check if already running
+  if [[ -f "$pidfile" ]]; then
+    local pid
+    pid=$(<"$pidfile")
+    if kill -0 "$pid" 2>/dev/null; then
+      echo ""
+      echo "  Live dashboard already running (PID $pid)."
+      local url="http://localhost:3001"
+      if command -v open >/dev/null 2>&1; then
+        open "$url"
+      elif command -v xdg-open >/dev/null 2>&1; then
+        xdg-open "$url"
+      fi
+      echo "  Opened: $(dim "$url")"
+      echo "  Stop with: $(dim "claude-conductor dashboard --live --stop")"
+      echo ""
+      return
+    else
+      rm -f "$pidfile"
+    fi
+  fi
+
+  # Start the Node.js watcher in background
+  local project_dir
+  project_dir="$(dirname "$sf")"
+  cd "$project_dir"
+  node "$watcher" >/dev/null 2>&1 &
+  local node_pid=$!
+  echo "$node_pid" > "$pidfile"
+  sleep 1
+
+  if ! kill -0 "$node_pid" 2>/dev/null; then
+    rm -f "$pidfile"
+    echo ""
+    echo "$(red "Error:") Live dashboard failed to start. Run manually to see errors:"
+    echo "  $(dim "cd $repo_dir/dashboard && node watcher.js")"
+    echo ""
+    return 1
+  fi
+
+  echo ""
+  echo "$(green "✓") Live dashboard started (PID $node_pid)."
+  local url="http://localhost:3001"
+  if command -v open >/dev/null 2>&1; then
+    open "$url"
+  elif command -v xdg-open >/dev/null 2>&1; then
+    xdg-open "$url"
+  fi
+  echo "  Opened: $(dim "$url")"
+  echo "  Stop with: $(dim "claude-conductor dashboard --live --stop")"
+  echo ""
+}
+
+# Link a JSONL session to a conductor session number
+cmd_link() {
+  local session_num="${1:-}"
+  local session_id="${2:-}"
+
+  if [[ -z "$session_num" || -z "$session_id" ]]; then
+    echo ""
+    echo "$(red "Usage:") claude-conductor link <session#> <session_id>"
+    echo "  Maps a Claude Code session UUID to a conductor session number."
+    echo ""
+    return 1
+  fi
+
+  local sf
+  sf="$(find_sessions_file)"
+  local links_file="$(dirname "$sf")/.conductor-links.json"
+
+  local tmp_file
+  tmp_file="$(mktemp)"
+  if [[ -f "$links_file" ]]; then
+    python3 -c "
+import json, sys
+try:
+    data = json.load(open('$links_file'))
+except: data = []
+data = [e for e in data if e.get('conductorNumber') != $session_num]
+data.append({'sessionId': '$session_id', 'conductorNumber': $session_num, 'persona': ''})
+json.dump(data, open('$tmp_file', 'w'), indent=2)
+" 2>/dev/null
+  else
+    echo "[{\"sessionId\": \"$session_id\", \"conductorNumber\": $session_num, \"persona\": \"\"}]" | python3 -m json.tool > "$tmp_file" 2>/dev/null
+  fi
+  mv "$tmp_file" "$links_file"
+
+  echo ""
+  echo "$(green "✓") Linked session #$session_num to $session_id"
+  echo ""
+}
+
+# Unlink a conductor session
+cmd_unlink() {
+  local session_num="${1:-}"
+
+  if [[ -z "$session_num" ]]; then
+    echo ""
+    echo "$(red "Usage:") claude-conductor unlink <session#>"
+    echo ""
+    return 1
+  fi
+
+  local sf
+  sf="$(find_sessions_file)"
+  local links_file="$(dirname "$sf")/.conductor-links.json"
+
+  if [[ ! -f "$links_file" ]]; then
+    echo ""
+    echo "$(dim "No links file found.")"
+    echo ""
+    return
+  fi
+
+  local tmp_file
+  tmp_file="$(mktemp)"
+  python3 -c "
+import json
+data = json.load(open('$links_file'))
+data = [e for e in data if e.get('conductorNumber') != $session_num]
+json.dump(data, open('$tmp_file', 'w'), indent=2)
+" 2>/dev/null
+  mv "$tmp_file" "$links_file"
+
+  echo ""
+  echo "$(green "✓") Unlinked session #$session_num"
+  echo ""
+}
+
 # Generate HTML dashboard (delegates to bin/generate-dashboard)
 cmd_dashboard() {
+  # Handle --live flag
+  if [[ "${1:-}" == "--live" ]]; then
+    shift
+    cmd_dashboard_live "$@"
+    return
+  fi
+
   local sf
   sf="$(check_sessions)"
 
@@ -1042,7 +1231,9 @@ cmd_help() {
   echo "  abandon <#> [reason] Mark a session as abandoned"
   echo "  clear               Archive completed sessions"
   echo "  conflicts           Check for file scope overlaps between sessions"
-  echo "  dashboard           Generate HTML dashboard (--open to view)"
+  echo "  dashboard           Generate HTML dashboard (--open to view, --live for Node.js)"
+  echo "  link <#> <id>       Link a Claude Code session to a conductor session"
+  echo "  unlink <#>          Remove a session link"
   echo "  init                Create SESSIONS.md in the current project"
   echo "  help                Show this help message"
   echo ""
@@ -1081,6 +1272,8 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     clear)          cmd_clear "$@" ;;
     conflicts)      cmd_conflicts "$@" ;;
     dashboard|dash) cmd_dashboard "$@" ;;
+    link)           cmd_link "$@" ;;
+    unlink)         cmd_unlink "$@" ;;
     help|--help|-h) cmd_help ;;
     *)
       echo "$(red "Unknown command:") $cmd"
