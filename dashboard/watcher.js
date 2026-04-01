@@ -68,6 +68,7 @@ function parseSessionsTable(content) {
       started: cols[5] || '',
       dependsOn: cols[6] || '',
       notes: cols[7] || '',
+      branch: cols[9] || '',  // cols[8] is Activity, cols[9] is Branch
     });
   }
   return sessions;
@@ -634,6 +635,7 @@ app.get('/api/sessions', (req, res) => {
           persona: csession.persona,
           task: csession.task,
           files: csession.files,
+          branch: csession.branch,
           conductorStatus: csession.status,
           dependsOn: csession.dependsOn,
         };

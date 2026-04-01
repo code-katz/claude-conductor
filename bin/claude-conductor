@@ -37,6 +37,15 @@ status_icon() {
   esac
 }
 
+# Generate a branch name from session number, persona, and task
+generate_branch_name() {
+  local num="$1" persona="$2" task="$3"
+  local persona_lower task_slug
+  persona_lower=$(echo "$persona" | tr '[:upper:]' '[:lower:]')
+  task_slug=$(echo "$task" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | sed 's/--*/-/g' | sed 's/^-//;s/-$//' | cut -c1-40)
+  echo "session/${num}-${persona_lower}-${task_slug}"
+}
+
 # Find SESSIONS.md by walking up from cwd to find a git root
 find_sessions_file() {
   local dir="$PWD"
@@ -82,7 +91,7 @@ session_exists() {
     grep -qE "^\| *${num} *\|"
 }
 
-# Get a field value from a session row (field index: 2=#, 3=Persona, 4=Task, 5=Files, 6=Status, 7=Started, 8=Depends On, 9=Notes)
+# Get a field value from a session row (field index: 2=#, 3=Persona, 4=Task, 5=Files, 6=Status, 7=Started, 8=Depends On, 9=Notes, 10=Activity, 11=Branch)
 get_session_field() {
   local sf="$1" num="$2" field="$3"
   sed -n '/^## Active Sessions/,/^## [^A]/p' "$sf" | \
@@ -313,13 +322,17 @@ cmd_status() {
       depends=$(echo "$line" | awk -F'|' '{gsub(/^ +| +$/, "", $8); print $8}')
 
       if [[ -n "$num" && "$num" != " " ]]; then
-        local icon
+        local icon branch
         icon=$(status_icon "$status")
+        branch=$(echo "$line" | awk -F'|' '{gsub(/^ +| +$/, "", $11); print $11}')
         printf "  #%-2s %s %-10s — %-40s [%s]" "$num" "$icon" "$persona" "$task" "$status"
         if [[ -n "$depends" && "$depends" != "—" && "$depends" != "-" ]]; then
           printf " → waiting on %s" "$depends"
         fi
         echo ""
+        if [[ -n "$branch" ]]; then
+          printf "      %s\n" "$(dim "$branch")"
+        fi
         count=$((count + 1))
       fi
     fi
@@ -397,8 +410,8 @@ No plan defined. Run \`/parallel\` to generate a plan, or \`claude-conductor add
 
 ## Active Sessions
 
-| # | Persona | Task | Files | Status | Started | Depends On | Notes | Activity |
-|---|---------|------|-------|--------|---------|------------|-------|----------|
+| # | Persona | Task | Files | Status | Started | Depends On | Notes | Activity | Branch |
+|---|---------|------|-------|--------|---------|------------|-------|----------|--------|
 
 ## Merge Order
 
@@ -406,8 +419,8 @@ No dependencies defined.
 
 ## Completed Sessions
 
-| # | Persona | Task | Files | Duration | Completed | Outcome |
-|---|---------|------|-------|----------|-----------|---------|
+| # | Persona | Task | Files | Duration | Completed | Outcome | Branch |
+|---|---------|------|-------|----------|-----------|---------|--------|
 
 ## Session Log
 EOF
@@ -448,7 +461,7 @@ cmd_start() {
       echo "Registering session #${num}:"
     fi
 
-    local persona task files depends notes
+    local persona task files depends notes branch
     printf "  Persona: "
     read -r persona
     printf "  Task: "
@@ -458,10 +471,13 @@ cmd_start() {
     printf "  Depends on (e.g. #1, or blank): "
     read -r depends
     depends="${depends:-}"
+    printf "  Branch (auto): "
+    read -r branch
+    branch="${branch:-$(generate_branch_name "$num" "$persona" "$task")}"
 
     local ts
     ts=$(now_timestamp)
-    local row="| ${num} | ${persona} | ${task} | ${files} | planning | ${ts} | ${depends} | | |"
+    local row="| ${num} | ${persona} | ${task} | ${files} | planning | ${ts} | ${depends} | | | ${branch} |"
     insert_active_row "$sf" "$row"
     append_log "$sf" "Session #${num} registered: ${persona} — ${task}"
 
@@ -533,7 +549,7 @@ cmd_add() {
   local sf
   sf="$(check_sessions)"
 
-  local persona="" task="" files="" depends=""
+  local persona="" task="" files="" depends="" branch=""
 
   # Parse named flags
   while [[ $# -gt 0 ]]; do
@@ -542,6 +558,7 @@ cmd_add() {
       --task)    task="$2"; shift 2 ;;
       --files)   files="$2"; shift 2 ;;
       --depends) depends="$2"; shift 2 ;;
+      --branch)  branch="$2"; shift 2 ;;
       *) shift ;;
     esac
   done
@@ -562,16 +579,18 @@ cmd_add() {
   num=$(next_session_number "$sf")
   local ts
   ts=$(now_timestamp)
-  local row="| ${num} | ${persona} | ${task} | ${files} | planning | ${ts} | ${depends} | | |"
+  branch="${branch:-$(generate_branch_name "$num" "$persona" "$task")}"
+  local row="| ${num} | ${persona} | ${task} | ${files} | planning | ${ts} | ${depends} | | | ${branch} |"
   insert_active_row "$sf" "$row"
   append_plan_item "$sf" "$num" "$persona" "$task" "$files"
-  append_log "$sf" "Session #${num} registered: ${persona} — ${task}"
+  append_log "$sf" "Session #${num} registered: ${persona} — ${task} (branch: ${branch})"
 
   maybe_regenerate_dashboard "$sf"
 
   echo ""
   echo "$(green "✓") Session #${num} registered: $(bold "$persona") — ${task}"
   echo "  Files: ${files}"
+  echo "  Branch: ${branch}"
   if [[ -n "$depends" ]]; then
     echo "  Depends on: ${depends}"
   fi
@@ -661,8 +680,14 @@ cmd_done() {
   toggle_plan_item "$sf" "$num"
   append_log "$sf" "Session #${num} marked done"
 
+  local branch
+  branch=$(get_session_field "$sf" "$num" 11)
+
   echo ""
   echo "$(green "✓") Session #${num} marked $(status_icon done) done"
+  if [[ -n "$branch" ]]; then
+    echo "  Branch: ${branch}"
+  fi
   check_dependents "$sf" "$num" "done"
   maybe_regenerate_dashboard "$sf"
   echo ""
@@ -687,10 +712,17 @@ cmd_merge() {
   update_session_field "$sf" "$num" 6 "merged"
   update_session_field "$sf" "$num" 10 ""
   toggle_plan_item "$sf" "$num"
-  append_log "$sf" "Session #${num} marked merged"
+
+  local branch
+  branch=$(get_session_field "$sf" "$num" 11)
+  append_log "$sf" "Session #${num} marked merged${branch:+ (branch: ${branch})}"
 
   echo ""
   echo "$(green "✓") Session #${num} marked $(status_icon merged) merged"
+  if [[ -n "$branch" ]]; then
+    echo "  Branch: ${branch}"
+    echo "  To merge: $(dim "git checkout main && git merge ${branch}")"
+  fi
   maybe_regenerate_dashboard "$sf"
   echo ""
 }
@@ -763,13 +795,14 @@ cmd_clear() {
   # Build completed rows and insert them
   local cleared_count=0
   for row in "${to_clear[@]}"; do
-    local c_num c_persona c_task c_files c_status c_started
+    local c_num c_persona c_task c_files c_status c_started c_branch
     c_num=$(echo "$row" | awk -F'|' '{gsub(/^ +| +$/, "", $2); print $2}')
     c_persona=$(echo "$row" | awk -F'|' '{gsub(/^ +| +$/, "", $3); print $3}')
     c_task=$(echo "$row" | awk -F'|' '{gsub(/^ +| +$/, "", $4); print $4}')
     c_files=$(echo "$row" | awk -F'|' '{gsub(/^ +| +$/, "", $5); print $5}')
     c_status=$(echo "$row" | awk -F'|' '{gsub(/^ +| +$/, "", $6); print $6}')
     c_started=$(echo "$row" | awk -F'|' '{gsub(/^ +| +$/, "", $7); print $7}')
+    c_branch=$(echo "$row" | awk -F'|' '{gsub(/^ +| +$/, "", $11); print $11}')
 
     # Calculate duration
     local duration="—"
@@ -780,7 +813,7 @@ cmd_clear() {
       duration=$(format_duration "$diff")
     fi
 
-    local completed_row="| ${c_num} | ${c_persona} | ${c_task} | ${c_files} | ${duration} | ${now_ts} | ${c_status} |"
+    local completed_row="| ${c_num} | ${c_persona} | ${c_task} | ${c_files} | ${duration} | ${now_ts} | ${c_status} | ${c_branch} |"
     insert_completed_row "$sf" "$completed_row"
     cleared_count=$((cleared_count + 1))
   done
@@ -1232,8 +1265,8 @@ cmd_help() {
   echo "$(bold "Commands:")"
   echo "  status              Show all active sessions $(dim "(default)")"
   echo "  start [count]       Register new session(s) interactively"
-  echo "  add --persona <name> --task <desc> --files <paths> [--depends <#>]"
-  echo "                      Register a session non-interactively"
+  echo "  add --persona <name> --task <desc> --files <paths> [--depends <#>] [--branch <name>]"
+  echo "                      Register a session non-interactively (branch auto-generated if omitted)"
   echo "  update <#> <status> Update a session's status"
   echo "  done <#>            Mark a session complete"
   echo "  merge <#>           Mark a session as merged"

@@ -571,7 +571,8 @@
           ? e('div', { className: 'conductor-task' },
               e('span', { className: 'task-label' }, 'Task: '),
               c.task,
-              c.files ? e('div', { className: 'conductor-files' }, 'Files: ' + c.files) : null
+              c.files ? e('div', { className: 'conductor-files' }, 'Files: ' + c.files) : null,
+              c.branch ? e('div', { className: 'conductor-files' }, 'Branch: ' + c.branch) : null
             )
           : null,
 
