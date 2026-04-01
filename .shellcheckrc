@@ -1,0 +1,13 @@
+# ShellCheck configuration for claude-conductor
+# https://www.shellcheck.net/wiki/
+
+# Allow sourcing from paths determined at runtime
+# (claude-conductor sources itself for detect_conflicts in generate-dashboard)
+external-sources=true
+
+# Permit [[ ]] bashisms (we require bash 4+)
+shell=bash
+
+# SC2005: echo "$(cmd)" is intentional for consistent output formatting with color helpers
+# SC2001: sed in pipelines is preferred over ${//} for complex substitutions in awk-heavy code
+disable=SC2005,SC2001

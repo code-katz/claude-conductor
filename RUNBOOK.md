@@ -317,11 +317,12 @@ The conductor only knows about sessions that were registered via `/conductor sta
 
 ```bash
 cd ~/d20m-development/code-katz/claude-conductor
-bash tests/run.sh       # 89 tests: CLI commands, conflict detection
-bash tests/dashboard.sh # 18 tests: HTML dashboard generation
+bash tests/run.sh              # 104 tests: CLI commands, conflict detection
+bash tests/dashboard.sh        # 27 tests: static HTML dashboard generation
+bash tests/dashboard-live.sh   # 26 tests: live Node.js dashboard integration
 ```
 
-Expected output: 107 tests total, all passing. Tests create temporary git repos, test CLI commands, verify SESSIONS.md parsing, conflict detection, and dashboard HTML generation.
+Expected output: 157 tests total, all passing. Tests create temporary git repos, test CLI commands, verify SESSIONS.md parsing, conflict detection, static dashboard HTML generation, and live dashboard API endpoints.
 
 ---
 

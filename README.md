@@ -54,12 +54,17 @@ You have three parallel sessions running. You want to know the state of the spri
 
 One command. Full visibility. No tab-switching.
 
+<!-- TODO: capture fresh screenshot of v1 live dashboard and embed here -->
+
 ---
 
 ## What It Does
 
 - **Tracks active sessions** in a `SESSIONS.md` file with persona, task, file scope, status, and dependencies
 - **Shows status at a glance** with a compact formatted view and status icons
+- **Live web dashboard** with real-time session monitoring, persona icons, and permission mode badges
+- **Per-session token counts and cost tracking** so you know where context is going
+- **Auto-links Claude Code sessions** to conductor personas via JSONL detection
 - **Monitors dependencies** and notifies when blocked sessions become unblocked
 - **Enforces merge order** so you know what to merge first
 - **Auto-registers sessions** from `/parallel` output, so you go from plan to tracking in one step
@@ -269,18 +274,29 @@ The file is a coordination artifact. It changes frequently during a sprint and i
 ```
 claude-conductor/
 ├── README.md
-├── SKILL.md               # The skill source file
+├── SKILL.md                # The skill source file
 ├── DEVLOG.md               # Development log for this project
+├── RUNBOOK.md              # Operational guide
 ├── install.sh              # One-command installer
 ├── bin/
-│   └── claude-conductor    # CLI script
+│   ├── claude-conductor    # CLI script
+│   ├── conductor-hook      # PostToolUse hook for proactive status
+│   ├── generate-dashboard  # Static HTML dashboard generator
+│   └── serve-dashboard     # Dashboard server wrapper
 ├── commands/
 │   ├── conductor.md        # /conductor slash command
 │   └── sessions.md         # /sessions alias
+├── dashboard/
+│   ├── watcher.js          # Live dashboard server (Node.js)
+│   ├── public/index.html   # React dashboard UI
+│   └── package.json        # Dashboard dependencies
 ├── tests/
-│   └── run.sh              # Test suite
+│   ├── run.sh              # CLI test suite (104 tests)
+│   ├── dashboard.sh        # Static dashboard tests (27 tests)
+│   └── dashboard-live.sh   # Live dashboard tests (26 tests)
+├── docs/                   # Architecture and design docs
 └── publish/
-    └── images/             # Banner images for README and blog
+    └── images/             # Banner images, screenshots
 ```
 
 ---
@@ -320,30 +336,36 @@ The live dashboard provides:
 
 The static HTML dashboard (`claude-conductor dashboard --open`) remains available as a zero-dependency fallback.
 
-Live dashboard based on [claude-code-dashboard](https://github.com/Stargx/claude-code-dashboard) by Stargx (MIT).
-
 ---
 
 ## Roadmap
 
-### v0.2 (current)
+### v1.0 (current)
 
 - SESSIONS.md format with active/completed tables and session log
 - Slash commands: `/conductor`, `/sessions`, `/conductor start`, `/conductor update`, `/conductor done`, `/conductor merge`, `/conductor abandon`, `/conductor clear`, `/conductor plan`
 - CLI: `claude-conductor status`, `init`, `start`, `update`, `done`, `merge`, `abandon`, `clear`, `conflicts`, `dashboard`, `link`, `unlink`, `help`
 - Static HTML dashboard with file conflict detection
-- Live Node.js dashboard with real-time session monitoring and token tracking
+- Live Node.js dashboard with real-time session monitoring, token tracking, and cost display
+- Persona icons, smart project labels, and permission mode badges
 - Auto-linking of JSONL sessions to conductor personas
-- Enhanced status detection (coding/planning/reviewing)
+- Enhanced status detection (coding/planning/reviewing/needs_input/disconnected)
 - Dependency tracking with unblock notifications
 - Merge order enforcement
 - Integration hooks for devlog, roadmap, and todo skills
+- 157 tests across CLI, static dashboard, and live dashboard
 
-### Later
+### Next
 
 - **Claude Code hooks:** `SessionStart` hook to auto-assign personas on new session creation
 - **Git integration:** detect file conflicts between sessions before they happen
 - **Paperclip bridge:** adapter to sync session state into a Paperclip instance for users who want the full orchestration platform
+
+---
+
+## Acknowledgments
+
+The live dashboard is built on [claude-code-dashboard](https://github.com/Stargx/claude-code-dashboard) by [Stargx](https://github.com/Stargx) (MIT), which provides real-time JSONL session monitoring, token tracking, and the React dashboard UI. Code Katz extended it with SESSIONS.md integration, persona enrichment, auto-linking, conductor-aware status detection, and CLI orchestration.
 
 ---
 

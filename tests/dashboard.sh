@@ -255,7 +255,7 @@ assert_file_exists "creates dashboard next to provided SESSIONS.md" "subdir/.con
 echo ""
 
 # -----------------------------------------------
-# v0.4 UX improvements
+# UX improvements
 # -----------------------------------------------
 echo "$(bold "Icon size")"
 
