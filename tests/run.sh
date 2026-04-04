@@ -816,8 +816,8 @@ No dependencies defined.
 ## Session Log
 EOF
 
-# Pipe stdin for interactive prompts: persona, task, files, depends
-printf 'Akira\nBuild API\nsrc/api/\n\n' | "$CLI" start >/dev/null 2>&1
+# Pipe stdin for interactive prompts: persona, task, files, depends, branch
+printf 'Akira\nBuild API\nsrc/api/\n\n\n' | "$CLI" start >/dev/null 2>&1
 
 total=$((total + 1))
 if sed -n '/^## Active Sessions/,/^## [^A]/p' SESSIONS.md | grep -q "Akira"; then
@@ -847,7 +847,7 @@ else
 fi
 
 # Register a second session and verify numbering
-printf 'Sasha\nBuild UI\nsrc/ui/\n#1\n' | "$CLI" start >/dev/null 2>&1
+printf 'Sasha\nBuild UI\nsrc/ui/\n#1\n\n' | "$CLI" start >/dev/null 2>&1
 
 total=$((total + 1))
 if sed -n '/^## Active Sessions/,/^## [^A]/p' SESSIONS.md | grep -q "| 2 | Sasha"; then
@@ -859,7 +859,7 @@ else
 fi
 
 # Test start with count argument
-printf 'Robin\nTest suite\ntests/\n\nMorgan\nSecurity audit\nsrc/auth/\n\n' | "$CLI" start 2 >/dev/null 2>&1
+printf 'Robin\nTest suite\ntests/\n\n\nMorgan\nSecurity audit\nsrc/auth/\n\n\n' | "$CLI" start 2 >/dev/null 2>&1
 
 total=$((total + 1))
 active_count=$(sed -n '/^## Active Sessions/,/^## [^A]/p' SESSIONS.md | { grep '^|[^-]' || true; } | { grep -v 'Persona' || true; } | wc -l | tr -d ' ')

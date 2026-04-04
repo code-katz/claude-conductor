@@ -1064,24 +1064,26 @@ cmd_link() {
     return 1
   fi
 
+  if ! command -v jq >/dev/null 2>&1; then
+    echo "$(red "Error:") jq is required for link/unlink commands."
+    echo "  Install with: $(dim "brew install jq") (macOS) or $(dim "apt install jq") (Linux)"
+    return 1
+  fi
+
   local sf
   sf="$(find_sessions_file)"
-  local links_file="$(dirname "$sf")/.conductor-links.json"
+  local links_file
+  links_file="$(dirname "$sf")/.conductor-links.json"
 
   local tmp_file
   tmp_file="$(mktemp)"
   if [[ -f "$links_file" ]]; then
-    python3 -c "
-import json, sys
-try:
-    data = json.load(open('$links_file'))
-except: data = []
-data = [e for e in data if e.get('conductorNumber') != $session_num]
-data.append({'sessionId': '$session_id', 'conductorNumber': $session_num, 'persona': ''})
-json.dump(data, open('$tmp_file', 'w'), indent=2)
-" 2>/dev/null
+    jq --argjson num "$session_num" --arg sid "$session_id" \
+      '[.[] | select(.conductorNumber != $num)] + [{"sessionId": $sid, "conductorNumber": $num, "persona": ""}]' \
+      "$links_file" > "$tmp_file"
   else
-    echo "[{\"sessionId\": \"$session_id\", \"conductorNumber\": $session_num, \"persona\": \"\"}]" | python3 -m json.tool > "$tmp_file" 2>/dev/null
+    jq -n --argjson num "$session_num" --arg sid "$session_id" \
+      '[{"sessionId": $sid, "conductorNumber": $num, "persona": ""}]' > "$tmp_file"
   fi
   mv "$tmp_file" "$links_file"
 
@@ -1103,7 +1105,14 @@ cmd_unlink() {
 
   local sf
   sf="$(find_sessions_file)"
-  local links_file="$(dirname "$sf")/.conductor-links.json"
+  local links_file
+  links_file="$(dirname "$sf")/.conductor-links.json"
+
+  if ! command -v jq >/dev/null 2>&1; then
+    echo "$(red "Error:") jq is required for link/unlink commands."
+    echo "  Install with: $(dim "brew install jq") (macOS) or $(dim "apt install jq") (Linux)"
+    return 1
+  fi
 
   if [[ ! -f "$links_file" ]]; then
     echo ""
@@ -1114,12 +1123,9 @@ cmd_unlink() {
 
   local tmp_file
   tmp_file="$(mktemp)"
-  python3 -c "
-import json
-data = json.load(open('$links_file'))
-data = [e for e in data if e.get('conductorNumber') != $session_num]
-json.dump(data, open('$tmp_file', 'w'), indent=2)
-" 2>/dev/null
+  jq --argjson num "$session_num" \
+    '[.[] | select(.conductorNumber != $num)]' \
+    "$links_file" > "$tmp_file"
   mv "$tmp_file" "$links_file"
 
   echo ""

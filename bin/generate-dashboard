@@ -43,6 +43,8 @@ dashboard_file="$dashboard_dir/$DASHBOARD_FILE"
 project_name=$(grep -m1 '^# ' "$sf" | sed 's/^# //' | sed 's/ — .*//')
 
 # Parse Active Sessions table into arrays
+# Column order (awk fields): 2=#, 3=Persona, 4=Task, 5=Files, 6=Status, 7=Started, 8=Depends On, 9=Notes, 10=Activity, 11=Branch
+# Canonical schema: see README.md "Active Sessions schema"
 active_count=0
 declare -a a_num=() a_persona=() a_task=() a_files=() a_status=() a_started=() a_depends=() a_notes=() a_activity=() a_branch=()
 
@@ -66,6 +68,8 @@ while IFS= read -r line; do
 done < <(sed -n '/^## Active Sessions/,/^## [^A]/p' "$sf")
 
 # Parse Completed Sessions table
+# Column order (awk fields): 2=#, 3=Persona, 4=Task, 5=Files, 6=Duration, 7=Completed, 8=Outcome, 9=Branch
+# Canonical schema: see README.md "Completed Sessions schema"
 completed_count=0
 declare -a c_num=() c_persona=() c_task=() c_files=() c_duration=() c_completed=() c_outcome=() c_branch=()
 

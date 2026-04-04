@@ -66,7 +66,7 @@ One command. Full visibility. No tab-switching.
 - **Per-session token counts and cost tracking** so you know where context is going
 - **Auto-links Claude Code sessions** to conductor personas via JSONL detection
 - **Monitors dependencies** and notifies when blocked sessions become unblocked
-- **Enforces merge order** so you know what to merge first
+- **Tracks merge order** so you know what to merge first
 - **Auto-registers sessions** from `/parallel` output, so you go from plan to tracking in one step
 - **Integrates with devlog** to capture what each session accomplished when it completes
 - **Tracks session lifecycle** from planning through merge with a timestamped session log
@@ -245,14 +245,76 @@ When a session completes, the conductor offers to create a devlog entry. After t
 
 ## SESSIONS.md
 
-Lives in your project root alongside `DEVLOG.md`, `ROADMAP.md`, and `TODOS.md`. Contains:
+Lives in your project root alongside `DEVLOG.md`, `ROADMAP.md`, and `TODOS.md`. Contains five sections:
 
-- **Active Sessions table** with persona, task, files, status, dependencies
+- **Plan** checklist tracking session completion
+- **Active Sessions** table with persona, task, files, status, dependencies, branch
 - **Merge Order** showing the dependency graph
-- **Completed Sessions table** with duration and outcome
+- **Completed Sessions** table with duration and outcome
 - **Session Log** with timestamped lifecycle events
 
 The file is a coordination artifact. It changes frequently during a sprint and is not auto-committed. Commit it manually if you want it in source control.
+
+### Active Sessions schema
+
+| Column | Field | Description |
+|--------|-------|-------------|
+| `$2` | # | Session number (auto-incrementing integer) |
+| `$3` | Persona | Team member name (e.g., Akira, Sasha, Robin) |
+| `$4` | Task | Short description of the work |
+| `$5` | Files | Comma-separated file/directory paths (used for conflict detection) |
+| `$6` | Status | One of: `planning`, `coding`, `reviewing`, `blocked`, `done`, `merged`, `abandoned` |
+| `$7` | Started | Timestamp in `YYYY-MM-DD HH:MM` format |
+| `$8` | Depends On | Session references (e.g., `#1` or `#1, #2`), or blank |
+| `$9` | Notes | Free-text notes |
+| `$10` | Activity | Live sub-status (e.g., "writing tests", "needs response") |
+| `$11` | Branch | Git branch name (auto-generated as `session/{#}-{persona}-{task-slug}`, or custom) |
+
+### Completed Sessions schema
+
+| Column | Field | Description |
+|--------|-------|-------------|
+| `$2` | # | Original session number |
+| `$3` | Persona | Team member name |
+| `$4` | Task | Task description |
+| `$5` | Files | File scope |
+| `$6` | Duration | Elapsed time (e.g., `2h 15m`) |
+| `$7` | Completed | Timestamp when archived |
+| `$8` | Outcome | Final status (`done`, `merged`, or `abandoned`) |
+| `$9` | Branch | Git branch name |
+
+### Branch naming convention
+
+When sessions are registered, a branch name is auto-generated:
+
+```
+session/{session_number}-{persona_lowercase}-{task_slug}
+```
+
+The task slug is lowercased, non-alphanumeric characters replaced with hyphens, collapsed, and truncated to 40 characters. Examples:
+
+- `session/1-akira-implement-battles-crud`
+- `session/2-sasha-build-battlelog-wizard`
+- `session/3-robin-integration-tests`
+
+Override with `--branch` on `claude-conductor add`:
+
+```bash
+claude-conductor add --persona Akira --task "API work" --files "src/" --branch "session/custom-name"
+```
+
+### Conflict detection
+
+The conductor warns when parallel sessions have overlapping file scopes. It compares file paths from the Files column and flags:
+
+- **Exact matches**: two sessions listing the same path
+- **Parent/child relationships**: `src/api/` overlaps with `src/api/routes.py`
+
+Conflict warnings appear in `claude-conductor status`, `claude-conductor conflicts`, and on both dashboards. The check is string-based (no filesystem or symlink resolution).
+
+### Merge order
+
+The Merge Order section documents the recommended merge sequence based on dependencies. **This is advisory, not enforced.** The conductor does not prevent out-of-order merges. When a session is marked `done`, the conductor notifies you which dependent sessions are unblocked.
 
 ---
 
@@ -307,6 +369,7 @@ claude-conductor/
 - Bash 3.2+
 - [Claude Code](https://claude.ai/code)
 - [claude-team-cli](https://github.com/code-katz/claude-team-cli) (recommended, for personas and `/parallel`)
+- jq (required for `link`/`unlink` commands; install with `brew install jq` or `apt install jq`)
 - Node.js 18+ (optional, for live dashboard)
 
 ---
@@ -335,6 +398,28 @@ The live dashboard provides:
 - Merge order visualization from SESSIONS.md
 
 The static HTML dashboard (`claude-conductor dashboard --open`) remains available as a zero-dependency fallback.
+
+---
+
+## Troubleshooting
+
+**`/conductor` doesn't work in Claude Code:**
+1. Check skill: `ls ~/.claude/skills/conductor/SKILL.md`
+2. Check command: `ls ~/.claude/commands/conductor.md`
+3. Start a new Claude Code session (skills load at session start)
+
+**`claude-conductor` not found in terminal:**
+1. Check it exists: `ls -la ~/.local/bin/claude-conductor`
+2. Check PATH: `echo $PATH | tr ':' '\n' | grep local`
+3. Add to `~/.zshrc`: `export PATH="$HOME/.local/bin:$PATH"` and `source ~/.zshrc`
+
+**SESSIONS.md not found:**
+The conductor walks up from the current directory to find the git root. Make sure you're inside a git repository (`git rev-parse --show-toplevel`). Outside a git repo, it defaults to the current directory.
+
+**"No active sessions" but sessions are running:**
+The conductor only tracks sessions registered via `/conductor start` or `claude-conductor add`. If you opened terminals without registering them, register manually with `/conductor start`.
+
+See [RUNBOOK.md](RUNBOOK.md) for the full operational guide.
 
 ---
 

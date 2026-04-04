@@ -36,6 +36,8 @@ function findSessionsFile(startDir) {
   return { file: null, root: startDir || process.cwd() };
 }
 
+// Column order (0-indexed after split+filter): 0=#, 1=Persona, 2=Task, 3=Files, 4=Status, 5=Started, 6=Depends On, 7=Notes, 8=Activity, 9=Branch
+// Canonical schema: see README.md "Active Sessions schema"
 function parseSessionsTable(content) {
   const lines = content.split('\n');
   const sessions = [];
