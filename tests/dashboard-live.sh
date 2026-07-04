@@ -292,6 +292,46 @@ assert_output_contains "help shows unlink command" "unlink" "$CLI" help
 
 echo ""
 
+# --- Transcript fixtures: pricing, unknown models, drift counters ---
+# Feeds pinned JSONL fixtures through a second watcher instance so a Claude
+# Code transcript-format change breaks CI here instead of blanking the
+# dashboard silently in production.
+echo "$(bold "Transcript fixtures")"
+
+FIXTURE_HOME=$(mktemp -d)
+mkdir -p "$FIXTURE_HOME/.claude/projects/fixture-hash"
+cp "$SCRIPT_DIR/fixtures/transcript-sample.jsonl" "$FIXTURE_HOME/.claude/projects/fixture-hash/fixture-session.jsonl"
+
+FIXTURE_PORT=3098
+HOME="$FIXTURE_HOME" PORT=$FIXTURE_PORT node "$WATCHER" >/dev/null 2>&1 &
+FIXTURE_PID=$!
+sleep 2
+
+FIXTURE_JSON=$(curl -sf "http://localhost:$FIXTURE_PORT/api/sessions" 2>/dev/null || echo "[]")
+HEALTH_JSON=$(curl -sf "http://localhost:$FIXTURE_PORT/api/health" 2>/dev/null || echo "{}")
+
+assert_json_field "fixture sessions are parsed" "$FIXTURE_JSON" \
+  "any(s['sessionId'] == 'fixture-session-0001' for s in d)"
+assert_json_field "fable-5 session is priced (cost > 0)" "$FIXTURE_JSON" \
+  "any(s['sessionId'] == 'fixture-session-0001' and s['costUSD'] and s['costUSD'] > 0 and s['costSource'] == 'pricing' for s in d)"
+assert_json_field "fable-5 cost includes 1.25x cache-write rate" "$FIXTURE_JSON" \
+  "abs(next(s for s in d if s['sessionId'] == 'fixture-session-0001')['costUSD'] - 0.2425) < 0.005"
+assert_json_field "unknown model gets null cost, not a wrong number" "$FIXTURE_JSON" \
+  "any(s['sessionId'] == 'fixture-session-0002' and s['costUSD'] is None and s['costSource'] == 'unknown' for s in d)"
+assert_json_field "session carries per-model context window" "$FIXTURE_JSON" \
+  "any(s['sessionId'] == 'fixture-session-0001' and s.get('contextWindow') == 200000 for s in d)"
+assert_json_field "permission mode captured from transcript" "$FIXTURE_JSON" \
+  "any(s['sessionId'] == 'fixture-session-0001' and s.get('permissionMode') == 'acceptEdits' for s in d)"
+assert_json_field "health reports pricing provenance" "$HEALTH_JSON" \
+  "d['pricingAsOf'] is not None and d['costEngine'] == 'pricing.json'"
+assert_json_field "health: fixture lines parse without drift" "$HEALTH_JSON" \
+  "d['parsedLines'] >= 5 and d['parseErrors'] == 0 and d['formatDrift'] == False"
+
+kill "$FIXTURE_PID" 2>/dev/null || true
+rm -rf "$FIXTURE_HOME"
+
+echo ""
+
 # --- Server stop ---
 echo "$(bold "Server cleanup")"
 

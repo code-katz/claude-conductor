@@ -4,32 +4,105 @@ const os = require('os');
 const express = require('express');
 const chokidar = require('chokidar');
 
-// --- Pricing ---
-const PRICING = {
-  'claude-opus-4-6':   { input: 15.00, output: 75.00 },
-  'claude-sonnet-4-6': { input: 3.00,  output: 15.00 },
-  'claude-haiku-4-5':  { input: 0.80,  output: 4.00 },
-};
-
-function getPricing(model) {
-  if (!model) return PRICING['claude-sonnet-4-6'];
-  for (const [key, val] of Object.entries(PRICING)) {
-    if (model.includes(key)) return val;
-  }
-  return PRICING['claude-sonnet-4-6']; // fallback
+// --- Pricing (config-driven; edit pricing.json, not this file) ---
+const PRICING_FILE = path.join(__dirname, 'pricing.json');
+let PRICING_CONFIG = { as_of: null, default_context_window: 200000, models: {} };
+try {
+  PRICING_CONFIG = JSON.parse(fs.readFileSync(PRICING_FILE, 'utf8'));
+} catch (e) {
+  console.error(`[pricing] could not load ${PRICING_FILE}: ${e.message} — costs will show as unknown`);
 }
+// Longest key first so claude-opus-4-8 wins over claude-opus-4
+const PRICING_KEYS = Object.keys(PRICING_CONFIG.models || {}).sort((a, b) => b.length - a.length);
+
+// Returns the pricing entry for a model, or null when the model is unknown.
+// Unknown models get NO cost estimate: a wrong number is worse than none.
+function getPricing(model) {
+  if (!model) return null;
+  for (const key of PRICING_KEYS) {
+    if (model.includes(key)) return PRICING_CONFIG.models[key];
+  }
+  return null;
+}
+
+function getContextWindow(model) {
+  const p = getPricing(model);
+  return (p && p.context_window) || PRICING_CONFIG.default_context_window || 200000;
+}
+
+// --- Optional ccusage cost engine (opt-in: CONDUCTOR_CCUSAGE=1) ---
+// When enabled, per-session costs come from ccusage instead of pricing.json,
+// outsourcing rate maintenance. Falls back silently on any error or
+// unrecognized output shape.
+const CCUSAGE_ENABLED = process.env.CONDUCTOR_CCUSAGE === '1';
+const ccusageCosts = new Map(); // sessionId -> USD
+let ccusageHealthy = CCUSAGE_ENABLED;
+
+function refreshCcusage() {
+  if (!ccusageHealthy) return;
+  const { execFile } = require('child_process');
+  execFile('ccusage', ['session', '--json'], { timeout: 30_000, maxBuffer: 32 * 1024 * 1024 }, (err, stdout) => {
+    if (err) { console.error('[ccusage] disabled:', err.message); ccusageHealthy = false; return; }
+    try {
+      const data = JSON.parse(stdout);
+      const rows = Array.isArray(data) ? data : (data.sessions || data.data || []);
+      let mapped = 0;
+      for (const row of rows) {
+        const id = row.sessionId || row.session_id || row.id;
+        const cost = row.totalCost ?? row.costUSD ?? row.cost;
+        if (id && typeof cost === 'number') { ccusageCosts.set(id, cost); mapped++; }
+      }
+      if (!mapped && rows.length) {
+        console.error('[ccusage] unrecognized output shape — falling back to pricing.json');
+        ccusageHealthy = false;
+      }
+    } catch (e) {
+      console.error('[ccusage] parse error — falling back to pricing.json:', e.message);
+      ccusageHealthy = false;
+    }
+  });
+}
+if (CCUSAGE_ENABLED) { refreshCcusage(); setInterval(refreshCcusage, 60_000).unref(); }
+
+// --- Transcript format drift detection ---
+// The JSONL transcript format is internal to Claude Code and can change on
+// any release; count unparseable lines so the UI can warn instead of
+// silently going blank.
+const parseStats = { lines: 0, errors: 0 };
 
 // --- SESSIONS.md Parsing ---
 let conductorData = { activeSessions: [], mergeOrder: '', projectRoot: '' };
 let conductorLinks = new Map(); // conductorSessionNumber -> { sessionId, persona, task, files, status, dependsOn }
 
+// Resolve a directory containing a .git entry to the MAIN checkout root.
+// In a worktree (or submodule) .git is a FILE pointing at the shared git
+// dir; SESSIONS.md lives in the main checkout so all sessions share it.
+function mainRootFrom(dir) {
+  const gitPath = path.join(dir, '.git');
+  try {
+    if (fs.statSync(gitPath).isDirectory()) return dir;
+    const m = fs.readFileSync(gitPath, 'utf8').match(/^gitdir:\s*(.+)\s*$/m);
+    if (!m) return dir;
+    let gitDir = path.resolve(dir, m[1].trim());
+    const commonFile = path.join(gitDir, 'commondir');
+    if (fs.existsSync(commonFile)) {
+      gitDir = path.resolve(gitDir, fs.readFileSync(commonFile, 'utf8').trim());
+    }
+    if (path.basename(gitDir) === '.git') return path.dirname(gitDir);
+    return dir;
+  } catch {
+    return dir;
+  }
+}
+
 function findSessionsFile(startDir) {
   let dir = startDir || process.cwd();
   while (dir !== path.dirname(dir)) {
     if (fs.existsSync(path.join(dir, '.git'))) {
-      const sf = path.join(dir, 'SESSIONS.md');
-      if (fs.existsSync(sf)) return { file: sf, root: dir };
-      return { file: null, root: dir };
+      const root = mainRootFrom(dir);
+      const sf = path.join(root, 'SESSIONS.md');
+      if (fs.existsSync(sf)) return { file: sf, root };
+      return { file: null, root };
     }
     dir = path.dirname(dir);
   }
@@ -311,18 +384,18 @@ function extractActiveFiles(content) {
   return files;
 }
 
-// Derive a display label from cwd
+// Derive a display label from cwd. Worktree-aware: a session running in a
+// worktree labels as the MAIN project, not the worktree directory name.
 function deriveLabel(cwd) {
   const parts = cwd.split('/').filter(Boolean);
-  // If cwd is a git repo, use parent/repo format
   if (fs.existsSync(path.join(cwd, '.git'))) {
-    return path.basename(cwd);
+    return path.basename(mainRootFrom(cwd));
   }
   // Walk up to find nearest git repo
   let dir = cwd;
   while (dir !== path.dirname(dir)) {
     if (fs.existsSync(path.join(dir, '.git'))) {
-      return path.basename(dir);
+      return path.basename(mainRootFrom(dir));
     }
     dir = path.dirname(dir);
   }
@@ -342,14 +415,14 @@ function refineLabelFromPaths(cwd, fullPaths) {
     if (parts.length >= 1) {
       const oneDeep = path.join(cwd, parts[0]);
       if (fs.existsSync(path.join(oneDeep, '.git'))) {
-        return parts[0];
+        return path.basename(mainRootFrom(oneDeep));
       }
     }
     // Check two levels deep (e.g., code-katz/claude-conductor/)
     if (parts.length >= 2) {
       const twoDeep = path.join(cwd, parts[0], parts[1]);
       if (fs.existsSync(path.join(twoDeep, '.git'))) {
-        return parts[0] + '/' + parts[1];
+        return parts[0] + '/' + path.basename(mainRootFrom(twoDeep));
       }
     }
   }
@@ -421,13 +494,23 @@ function processEvent(event, projectHash) {
     // Track last turn's total input for context window estimate
     session.lastTurnInputTotal = curr.in + curr.cacheCreate + curr.cacheRead;
 
-    // Recalculate cost
+    // Recalculate cost. Cache writes bill at cache_write_mult x input rate
+    // (1.25 for the 5-minute cache), cache reads at cache_read_mult x input.
     const pricing = getPricing(session.model);
-    session.costUSD =
-      (session.tokensIn * pricing.input / 1_000_000) +
-      (session.tokensOut * pricing.output / 1_000_000) +
-      (session.cacheCreationIn * pricing.input * 0.25 / 1_000_000) +
-      (session.cacheReadIn * pricing.input * 0.10 / 1_000_000);
+    if (pricing) {
+      const cw = pricing.cache_write_mult ?? 1.25;
+      const cr = pricing.cache_read_mult ?? 0.10;
+      session.costUSD =
+        (session.tokensIn * pricing.input / 1_000_000) +
+        (session.tokensOut * pricing.output / 1_000_000) +
+        (session.cacheCreationIn * pricing.input * cw / 1_000_000) +
+        (session.cacheReadIn * pricing.input * cr / 1_000_000);
+      session.costKnown = true;
+    } else {
+      session.costUSD = null;
+      session.costKnown = false;
+    }
+    session.contextWindow = getContextWindow(session.model);
 
     // Log tool use
     if (Array.isArray(content)) {
@@ -575,11 +658,14 @@ function processFile(filePath) {
     const lines = buffer.split('\n');
     for (const line of lines) {
       if (!line.trim()) continue;
+      parseStats.lines++;
       try {
         const event = JSON.parse(line);
         processEvent(event, projectHash);
       } catch (e) {
-        // Skip malformed lines (partial writes)
+        // Malformed line: usually a partial write, but a sustained error
+        // rate means the transcript format changed under us.
+        parseStats.errors++;
       }
     }
   });
@@ -653,12 +739,21 @@ app.get('/api/sessions', (req, res) => {
       }
     }
 
+    // ccusage (when enabled and healthy) is the preferred cost source
+    let costUSD = session.costUSD;
+    let costSource = session.costKnown ? 'pricing' : 'unknown';
+    if (CCUSAGE_ENABLED && ccusageHealthy && ccusageCosts.has(session.sessionId)) {
+      costUSD = ccusageCosts.get(session.sessionId);
+      costSource = 'ccusage';
+    }
+
     all.push({
       ...session,
       status,
       conductorStatus,
       conductor,
-      costUSD: Math.round(session.costUSD * 10000) / 10000,
+      costUSD: costUSD == null ? null : Math.round(costUSD * 10000) / 10000,
+      costSource,
       subagents: subagentList,
     });
   }
@@ -700,6 +795,18 @@ app.get('/api/conductor', (req, res) => {
     projectRoot: conductorData.projectRoot,
     activeSessions: conductorData.activeSessions,
     mergeOrder: conductorData.mergeOrder,
+  });
+});
+
+// Health/meta: pricing provenance and transcript-format drift signal
+app.get('/api/health', (req, res) => {
+  const errorRate = parseStats.lines > 0 ? parseStats.errors / parseStats.lines : 0;
+  res.json({
+    pricingAsOf: PRICING_CONFIG.as_of || null,
+    costEngine: CCUSAGE_ENABLED && ccusageHealthy ? 'ccusage' : 'pricing.json',
+    parsedLines: parseStats.lines,
+    parseErrors: parseStats.errors,
+    formatDrift: parseStats.lines > 20 && errorRate > 0.05,
   });
 });
 

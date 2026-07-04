@@ -459,6 +459,7 @@
     }
 
     function formatCost(c) {
+      if (c === null || c === undefined) return '\u2014';
       return '$' + c.toFixed(4);
     }
 
@@ -477,8 +478,8 @@
       return new Date(iso).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
     }
 
-    function contextPercent(lastTurnInputTotal) {
-      return Math.min(100, (lastTurnInputTotal / 200_000) * 100);
+    function contextPercent(lastTurnInputTotal, contextWindow) {
+      return Math.min(100, (lastTurnInputTotal / (contextWindow || 200_000)) * 100);
     }
 
     function contextBarColor(pct) {
@@ -508,7 +509,7 @@
     function SessionCard({ session }) {
       const [expanded, setExpanded] = useState(false);
       const st = session.status;
-      const pct = contextPercent(session.lastTurnInputTotal || session.tokensIn);
+      const pct = contextPercent(session.lastTurnInputTotal || session.tokensIn, session.contextWindow);
       const emoji = STATUS_EMOJI[st] || '';
       const c = session.conductor;
       const isLinked = !!(c && c.persona);
@@ -556,8 +557,12 @@
             e('div', { style: { display: 'flex', gap: '6px', alignItems: 'center', flexShrink: 0 } },
               session.permissionMode === 'bypassPermissions'
                 ? e('span', { className: 'perm-badge bypass' }, 'YOLO')
+                : session.permissionMode === 'dontAsk'
+                ? e('span', { className: 'perm-badge bypass' }, 'DONT-ASK')
                 : session.permissionMode === 'acceptEdits'
                 ? e('span', { className: 'perm-badge accept-edits' }, 'AUTO-EDIT')
+                : session.permissionMode === 'auto'
+                ? e('span', { className: 'perm-badge accept-edits' }, 'AUTO')
                 : session.permissionMode === 'plan'
                 ? e('span', { className: 'perm-badge plan' }, 'PLAN')
                 : e('span', { className: 'perm-badge default' }, 'ASK'),
@@ -586,7 +591,7 @@
             ),
             e('div', { className: 'meta-item' },
               e('span', { className: 'meta-key' }, 'Cost'),
-              e('span', { className: 'meta-val cost' }, formatCost(session.costUSD))
+              e('span', { className: 'meta-val cost', title: session.costSource === 'unknown' ? 'Unknown model \u2014 no rate in pricing.json' : 'Cost source: ' + (session.costSource || 'pricing') }, formatCost(session.costUSD))
             ),
             e('div', { className: 'meta-item' },
               e('span', { className: 'meta-key' }, 'Output'),
@@ -664,6 +669,7 @@
     function Dashboard() {
       const [sessions, setSessions] = useState([]);
       const [conductor, setConductor] = useState(null);
+      const [health, setHealth] = useState(null);
       const [lastFetch, setLastFetch] = useState(null);
 
       const fetchAll = useCallback(() => {
@@ -678,6 +684,10 @@
           .then(r => r.json())
           .then(data => setConductor(data))
           .catch(() => {});
+        fetch('/api/health')
+          .then(r => r.json())
+          .then(data => setHealth(data))
+          .catch(() => {});
       }, []);
 
       useEffect(() => {
@@ -686,11 +696,16 @@
         return () => clearInterval(iv);
       }, [fetchAll]);
 
-      const totalCost = sessions.reduce((s, x) => s + x.costUSD, 0);
+      const totalCost = sessions.reduce((s, x) => s + (x.costUSD || 0), 0);
       const totalOut = sessions.reduce((s, x) => s + x.tokensOut, 0);
       const activeSessions = sessions.filter(s => s.status === 'thinking' || s.status === 'waiting').length;
 
       return e('div', null,
+        // Transcript format drift warning
+        health && health.formatDrift
+          ? e('div', { style: { background: 'var(--red, #b91c1c)', color: '#fff', padding: '6px 14px', fontSize: '12px', borderRadius: '6px', margin: '8px 0' } },
+              '\u26a0 ' + health.parseErrors + ' of ' + health.parsedLines + ' transcript lines failed to parse \u2014 the Claude Code session format may have changed. Token/cost data may be incomplete.')
+          : null,
         // Header
         e('div', { className: 'header' },
           e('div', { className: 'header-left' },
