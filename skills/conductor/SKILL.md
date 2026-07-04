@@ -1,5 +1,5 @@
 ---
-name: claude-conductor
+name: conductor
 description: Track and coordinate parallel Claude Code sessions from a central dashboard. Use this skill whenever the user says "/conductor", "/sessions", "session status", "who is doing what", "show sessions", or references checking on parallel work streams. Also trigger when the user starts a new parallel session, completes a session, or asks about merge order or dependencies between sessions. Works alongside claude-team-cli to provide visibility into multi-session workflows.
 ---
 
