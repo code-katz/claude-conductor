@@ -490,7 +490,9 @@
 
     // --- Persona helpers ---
     const PERSONA_ICON_BASE = 'https://raw.githubusercontent.com/code-katz/.github/main/media/logos';
-    const KNOWN_PERSONAS = new Set([
+    // Fallback roster; the live list comes from /api/health (server-side
+    // discovery of installed claude-team profiles).
+    let KNOWN_PERSONAS = new Set([
       'akira', 'alex', 'casey', 'jordan', 'kai', 'morgan', 'quinn', 'river', 'robin', 'sage', 'sasha', 'toni'
     ]);
 
@@ -686,7 +688,12 @@
           .catch(() => {});
         fetch('/api/health')
           .then(r => r.json())
-          .then(data => setHealth(data))
+          .then(data => {
+            setHealth(data);
+            if (Array.isArray(data.personas) && data.personas.length) {
+              KNOWN_PERSONAS = new Set(data.personas);
+            }
+          })
           .catch(() => {});
       }, []);
 

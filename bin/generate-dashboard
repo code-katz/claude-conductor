@@ -135,6 +135,11 @@ persona_icon_url() {
   local base="https://raw.githubusercontent.com/code-katz/.github/main/media/logos"
   local lower
   lower=$(echo "$name" | tr '[:upper:]' '[:lower:]')
+  # Installed claude-team profiles extend the bundled roster
+  if [[ -f "$HOME/.claude/team/${lower}.md" && "$lower" != coordinator* ]]; then
+    echo "$base/${lower}-icon.png"
+    return
+  fi
   case "$lower" in
     akira|alex|casey|jordan|kai|morgan|quinn|river|robin|sage|sasha|toni)
       echo "$base/${lower}-icon.png" ;;

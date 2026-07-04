@@ -1,0 +1,85 @@
+#!/usr/bin/env bash
+# conductor-session-start — Claude Code SessionStart hook.
+#
+# Auto-links this Claude Code session to its conductor row (by matching the
+# checkout's branch against the Branch column) and injects the session's
+# task context. Unmatched sessions in a conductor-tracked project get a
+# compact status summary instead. Stdout from a SessionStart hook is added
+# to the session's context.
+#
+# Requires jq for linking; degrades to context-only without it.
+# Always exits 0.
+
+set -uo pipefail
+
+input=$(cat 2>/dev/null) || input=""
+session_id=""
+cwd=""
+if command -v jq >/dev/null 2>&1 && [[ -n "$input" ]]; then
+  session_id=$(printf '%s' "$input" | jq -r '.session_id // empty' 2>/dev/null)
+  cwd=$(printf '%s' "$input" | jq -r '.cwd // empty' 2>/dev/null)
+fi
+dir="${cwd:-${CLAUDE_PROJECT_DIR:-$PWD}}"
+
+# Worktree-aware root: SESSIONS.md lives in the MAIN checkout.
+toplevel=$(cd "$dir" 2>/dev/null && git rev-parse --show-toplevel 2>/dev/null) || toplevel=""
+[[ -n "$toplevel" ]] || exit 0
+common=$(cd "$toplevel" && git rev-parse --path-format=absolute --git-common-dir 2>/dev/null) \
+  || common=$(cd "$toplevel" && git rev-parse --git-common-dir 2>/dev/null) || common=""
+case "$common" in
+  */.git) root="${common%/.git}" ;;
+  *)      root="$toplevel" ;;
+esac
+sf="$root/SESSIONS.md"
+[[ -f "$sf" ]] || exit 0
+
+active_rows() {
+  sed -n '/^## Active Sessions/,/^## [^A]/p' "$sf" | \
+    grep -E '^\| *[0-9]+ *\|'
+}
+
+branch=$(cd "$dir" 2>/dev/null && git rev-parse --abbrev-ref HEAD 2>/dev/null) || branch=""
+
+num="" persona="" task="" files="" status_field="" depends=""
+if [[ -n "$branch" && "$branch" != "HEAD" ]]; then
+  row=$(active_rows | awk -F'|' -v br="$branch" '{
+    f = $11; gsub(/^ +| +$/, "", f)
+    if (f == br) { print; exit }
+  }')
+  if [[ -n "$row" ]]; then
+    num=$(echo "$row"    | awk -F'|' '{gsub(/^ +| +$/, "", $2);  print $2}')
+    persona=$(echo "$row" | awk -F'|' '{gsub(/^ +| +$/, "", $3);  print $3}')
+    task=$(echo "$row"    | awk -F'|' '{gsub(/^ +| +$/, "", $4);  print $4}')
+    files=$(echo "$row"   | awk -F'|' '{gsub(/^ +| +$/, "", $5);  print $5}')
+    status_field=$(echo "$row" | awk -F'|' '{gsub(/^ +| +$/, "", $6); print $6}')
+    depends=$(echo "$row" | awk -F'|' '{gsub(/^ +| +$/, "", $8);  print $8}')
+  fi
+fi
+
+if [[ -n "$num" ]]; then
+  # Record the link so the hook and dashboard can resolve this session.
+  if [[ -n "$session_id" ]] && command -v jq >/dev/null 2>&1; then
+    links="$root/.conductor-links.json"
+    tmp=$(mktemp)
+    existing="[]"
+    [[ -f "$links" ]] && existing=$(cat "$links" 2>/dev/null || echo "[]")
+    persona_lower=$(echo "$persona" | tr '[:upper:]' '[:lower:]')
+    if printf '%s' "$existing" | jq \
+        --arg sid "$session_id" --argjson num "$num" --arg p "$persona_lower" \
+        'map(select(.sessionId != $sid)) + [{sessionId: $sid, conductorNumber: $num, persona: $p}]' \
+        > "$tmp" 2>/dev/null; then
+      mv "$tmp" "$links"
+    else
+      rm -f "$tmp"
+    fi
+  fi
+
+  echo "Conductor session context: you are session #${num} (${persona}) — task: ${task}. File scope: ${files:-unscoped}. Status: ${status_field}.${depends:+ Depends on: ${depends}.} Keep the dashboard honest: run 'claude-conductor u ${num} coding --activity \"...\"' when you start edits or change activity, and 'claude-conductor d ${num}' when the task is complete. Stay inside your file scope; never switch branches in this worktree."
+else
+  count=$(active_rows | wc -l | tr -d ' ')
+  if [[ "$count" -gt 0 ]]; then
+    echo "Conductor: this project has ${count} tracked session(s) in SESSIONS.md at ${root}. This session is not registered as one of them (no branch match). Check status with /conductor or 'claude-conductor status'; register new work with 'claude-conductor add'."
+  fi
+fi
+
+exit 0
