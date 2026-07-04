@@ -46,18 +46,30 @@ generate_branch_name() {
   echo "session/${num}-${persona_lower}-${task_slug}"
 }
 
-# Find SESSIONS.md by walking up from cwd to find a git root
+# Resolve the repo root, worktree-aware. Inside a git worktree (.git is a
+# file, not a directory), the root is the MAIN checkout so every parallel
+# session shares one SESSIONS.md.
+find_repo_root() {
+  local toplevel common_dir main_root
+  toplevel=$(git rev-parse --show-toplevel 2>/dev/null) || { echo "$PWD"; return; }
+  common_dir=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null) \
+    || common_dir=$(cd "$toplevel" && git rev-parse --git-common-dir 2>/dev/null)
+  case "$common_dir" in
+    */.git) main_root="${common_dir%/.git}" ;;
+    *)      main_root="$toplevel" ;;
+  esac
+  if [[ -d "$main_root" ]]; then
+    echo "$main_root"
+  else
+    echo "$toplevel"
+  fi
+}
+
+# Find SESSIONS.md at the (worktree-aware) repo root
 find_sessions_file() {
-  local dir="$PWD"
-  while [[ "$dir" != "/" ]]; do
-    if [[ -d "$dir/.git" ]]; then
-      echo "$dir/$SESSIONS_FILE"
-      return 0
-    fi
-    dir="$(dirname "$dir")"
-  done
-  # Fallback to cwd
-  echo "$PWD/$SESSIONS_FILE"
+  local root
+  root="$(find_repo_root)"
+  echo "$root/$SESSIONS_FILE"
 }
 
 # Check if SESSIONS.md exists
@@ -401,6 +413,7 @@ cmd_init() {
 
 Active coordination view for parallel Claude Code sessions.
 Auto-maintained via [claude-conductor](https://github.com/code-katz/claude-conductor).
+<!-- conductor-schema: v2 (Active: 10 columns incl. Activity+Branch; Completed: 8 columns incl. Branch) -->
 
 ---
 
@@ -721,7 +734,9 @@ cmd_merge() {
   echo "$(green "✓") Session #${num} marked $(status_icon merged) merged"
   if [[ -n "$branch" ]]; then
     echo "  Branch: ${branch}"
-    echo "  To merge: $(dim "git checkout main && git merge ${branch}")"
+    echo "  To merge from the coordination session (already on the default branch, no checkout):"
+    echo "    $(dim "git merge ${branch}")"
+    echo "  Or ship via PR: $(dim "git push origin ${branch} && gh pr create --fill")"
   fi
   maybe_regenerate_dashboard "$sf"
   echo ""

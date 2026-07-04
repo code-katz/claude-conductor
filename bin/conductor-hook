@@ -1,39 +1,86 @@
 #!/usr/bin/env bash
-# conductor-hook — Called by Claude Code PostToolUse hook on Edit/Write
-# Finds the first "planning" session in SESSIONS.md and updates it to "coding"
-# Only fires once per session (uses a PID-based marker file)
+# conductor-hook — Claude Code PostToolUse hook (Edit|Write|NotebookEdit)
+#
+# Reads the hook JSON from stdin, resolves WHICH conductor session this
+# Claude Code session is (via .conductor-links.json, then a git branch
+# match against the Branch column), and promotes that session from
+# planning to coding on its first edit. Never guesses: if the session
+# cannot be resolved, it does nothing.
+#
+# Wiring (until the plugin ships hooks.json), in ~/.claude/settings.json:
+#   {
+#     "hooks": {
+#       "PostToolUse": [
+#         { "matcher": "Edit|Write|NotebookEdit",
+#           "hooks": [ { "type": "command", "command": "conductor-hook" } ] }
+#       ]
+#     }
+#   }
+#
+# Requires jq. Always exits 0: a hook failure must never block the session.
 
-set -euo pipefail
+set -uo pipefail
 
-# Find SESSIONS.md
-find_sessions() {
-  local dir="${CLAUDE_PROJECT_DIR:-$PWD}"
-  while [[ "$dir" != "/" ]]; do
-    if [[ -f "$dir/SESSIONS.md" ]]; then
-      echo "$dir/SESSIONS.md"
-      return 0
-    fi
-    dir="$(dirname "$dir")"
-  done
-  return 1
-}
+command -v jq >/dev/null 2>&1 || exit 0
+input=$(cat 2>/dev/null) || exit 0
+[[ -n "$input" ]] || exit 0
 
-sf=$(find_sessions 2>/dev/null) || exit 0
+session_id=$(printf '%s' "$input" | jq -r '.session_id // empty' 2>/dev/null)
+cwd=$(printf '%s' "$input" | jq -r '.cwd // empty' 2>/dev/null)
+[[ -n "$session_id" ]] || exit 0
 
-# One-shot: only fire once per Claude Code process
-marker="/tmp/.conductor-hook-$$"
-if [[ -f "$marker" ]]; then
-  exit 0
+# One-shot per Claude Code session
+marker="${TMPDIR:-/tmp}/.conductor-hook-${session_id}"
+[[ -f "$marker" ]] && exit 0
+
+# Locate the project root, worktree-aware: SESSIONS.md lives in the MAIN
+# checkout so all parallel sessions share one coordination file.
+dir="${cwd:-${CLAUDE_PROJECT_DIR:-$PWD}}"
+root=""
+if command -v git >/dev/null 2>&1; then
+  toplevel=$(cd "$dir" 2>/dev/null && git rev-parse --show-toplevel 2>/dev/null) || toplevel=""
+  if [[ -n "$toplevel" ]]; then
+    common=$(cd "$toplevel" && git rev-parse --path-format=absolute --git-common-dir 2>/dev/null) \
+      || common=$(cd "$toplevel" && git rev-parse --git-common-dir 2>/dev/null) || common=""
+    case "$common" in
+      */.git) root="${common%/.git}" ;;
+      *)      root="$toplevel" ;;
+    esac
+  fi
 fi
-touch "$marker"
+[[ -n "$root" && -f "$root/SESSIONS.md" ]] || exit 0
+sf="$root/SESSIONS.md"
 
-# Find the first session still in "planning" and update it to "coding"
-first_planning=$(sed -n '/^## Active Sessions/,/^## [^A]/p' "$sf" | \
-  grep '| planning |' | head -1 | \
-  awk -F'|' '{gsub(/^ +| +$/, "", $2); print $2}')
+num=""
 
-if [[ -n "$first_planning" ]]; then
-  claude-conductor u "$first_planning" coding --activity "writing code" >/dev/null 2>&1 || true
+# 1. Preferred: explicit link file (sessionId -> conductor session number)
+links="$root/.conductor-links.json"
+if [[ -f "$links" ]]; then
+  num=$(jq -r --arg sid "$session_id" \
+    '.[] | select(.sessionId == $sid) | .conductorNumber' "$links" 2>/dev/null | head -1)
 fi
 
+# 2. Fallback: match this checkout's branch against the Branch column
+if [[ -z "$num" ]]; then
+  branch=$(cd "$dir" 2>/dev/null && git rev-parse --abbrev-ref HEAD 2>/dev/null) || branch=""
+  if [[ -n "$branch" && "$branch" != "HEAD" ]]; then
+    num=$(sed -n '/^## Active Sessions/,/^## [^A]/p' "$sf" | \
+      awk -F'|' -v br="$branch" '{
+        f = $11; gsub(/^ +| +$/, "", f)
+        n = $2;  gsub(/^ +| +$/, "", n)
+        if (f == br && n ~ /^[0-9]+$/) { print n; exit }
+      }')
+  fi
+fi
+
+[[ -n "$num" ]] || exit 0
+
+# Only promote sessions still in planning
+status=$(sed -n '/^## Active Sessions/,/^## [^A]/p' "$sf" | \
+  grep -E "^\| *${num} *\|" | head -1 | \
+  awk -F'|' '{gsub(/^ +| +$/, "", $6); print $6}')
+[[ "$status" == "planning" ]] || { touch "$marker" 2>/dev/null || true; exit 0; }
+
+touch "$marker" 2>/dev/null || true
+claude-conductor u "$num" coding --activity "writing code" >/dev/null 2>&1 || true
 exit 0

@@ -12,16 +12,19 @@ DASHBOARD_FILE=".conductor-dashboard.html"
 
 # --- Locate SESSIONS.md ---
 
+# Worktree-aware: inside a git worktree (.git is a file), SESSIONS.md lives
+# in the MAIN checkout shared by all parallel sessions.
 find_sessions_file() {
-  local dir="$PWD"
-  while [[ "$dir" != "/" ]]; do
-    if [[ -d "$dir/.git" ]]; then
-      echo "$dir/$SESSIONS_FILE"
-      return 0
-    fi
-    dir="$(dirname "$dir")"
-  done
-  echo "$PWD/$SESSIONS_FILE"
+  local toplevel common_dir main_root
+  toplevel=$(git rev-parse --show-toplevel 2>/dev/null) || { echo "$PWD/$SESSIONS_FILE"; return; }
+  common_dir=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null) \
+    || common_dir=$(cd "$toplevel" && git rev-parse --git-common-dir 2>/dev/null)
+  case "$common_dir" in
+    */.git) main_root="${common_dir%/.git}" ;;
+    *)      main_root="$toplevel" ;;
+  esac
+  [[ -d "$main_root" ]] || main_root="$toplevel"
+  echo "$main_root/$SESSIONS_FILE"
 }
 
 sf="${1:-}"

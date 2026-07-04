@@ -47,16 +47,17 @@ If no linter is configured, flag it to the user before proceeding.
 
 Active coordination view for parallel Claude Code sessions.
 Auto-maintained via [claude-conductor](https://github.com/code-katz/claude-conductor).
+<!-- conductor-schema: v2 (Active: 10 columns incl. Activity+Branch; Completed: 8 columns incl. Branch) -->
 
 ---
 
 ## Active Sessions
 
-| # | Persona | Task | Files | Status | Started | Depends On | Notes |
-|---|---------|------|-------|--------|---------|------------|-------|
-| 1 | Akira | Implement /battles CRUD endpoints | app/routers/, app/models/ | coding | 2026-03-28 14:00 | — | API contracts defined |
-| 2 | Sasha | Build BattleLog wizard component | frontend/src/pages/, frontend/src/components/ | blocked | 2026-03-28 14:05 | #1 | Waiting on API types |
-| 3 | Robin | Integration tests for battles API | tests/ | planning | 2026-03-28 14:10 | #1 | — |
+| # | Persona | Task | Files | Status | Started | Depends On | Notes | Activity | Branch |
+|---|---------|------|-------|--------|---------|------------|-------|----------|--------|
+| 1 | Akira | Implement /battles CRUD endpoints | app/routers/, app/models/ | coding | 2026-03-28 14:00 | — | API contracts defined | writing code | session/1-akira-implement-battles-crud |
+| 2 | Sasha | Build BattleLog wizard component | frontend/src/pages/, frontend/src/components/ | blocked | 2026-03-28 14:05 | #1 | Waiting on API types | | session/2-sasha-build-battlelog-wizard |
+| 3 | Robin | Integration tests for battles API | tests/ | planning | 2026-03-28 14:10 | #1 | — | | session/3-robin-integration-tests |
 
 ## Merge Order
 
@@ -65,9 +66,9 @@ Auto-maintained via [claude-conductor](https://github.com/code-katz/claude-condu
 
 ## Completed Sessions
 
-| # | Persona | Task | Files | Duration | Completed | Outcome |
-|---|---------|------|-------|----------|-----------|---------|
-| — | — | — | — | — | — | — |
+| # | Persona | Task | Files | Duration | Completed | Outcome | Branch |
+|---|---------|------|-------|----------|-----------|---------|--------|
+| — | — | — | — | — | — | — | — |
 
 ## Session Log
 
@@ -292,13 +293,14 @@ This provides a timeline of the sprint's coordination history. It is never edite
 
 Active coordination view for parallel Claude Code sessions.
 Auto-maintained via [claude-conductor](https://github.com/code-katz/claude-conductor).
+<!-- conductor-schema: v2 (Active: 10 columns incl. Activity+Branch; Completed: 8 columns incl. Branch) -->
 
 ---
 
 ## Active Sessions
 
-| # | Persona | Task | Files | Status | Started | Depends On | Notes |
-|---|---------|------|-------|--------|---------|------------|-------|
+| # | Persona | Task | Files | Status | Started | Depends On | Notes | Activity | Branch |
+|---|---------|------|-------|--------|---------|------------|-------|----------|--------|
 
 ## Merge Order
 
@@ -306,8 +308,8 @@ No dependencies defined.
 
 ## Completed Sessions
 
-| # | Persona | Task | Files | Duration | Completed | Outcome |
-|---|---------|------|-------|----------|-----------|---------|
+| # | Persona | Task | Files | Duration | Completed | Outcome | Branch |
+|---|---------|------|-------|----------|-----------|---------|--------|
 
 ## Session Log
 ```
