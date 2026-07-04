@@ -5,6 +5,39 @@ Auto-maintained via [claude-devlog-skill](https://github.com/code-katz/claude-de
 
 ---
 
+## [2026-07-04] v1.1: Harness modernization for Fable 5, plugin packaging, hooks that work
+
+**Category:** `milestone`
+**Tags:** `plugin`, `hooks`, `worktrees`, `pricing`, `fable-5`, `v1.1`
+**Risk Level:** `medium`
+**Breaking Change:** `no`
+
+### Summary
+
+Three-phase modernization against the July 2026 Claude Code harness, driven by a full audit (docs/2026-07-03-fable-harness-modernization-analysis.md) and a market survey (docs/2026-07-04-landscape-survey-parallel-session-tools.md). The conductor is now worktree-aware end to end, prices the Claude 5 lineup from config instead of stale constants, ships as an installable plugin whose hooks register automatically, and carries an end-to-end drill that exercises the full 3-session workflow.
+
+### Detail
+
+- Worktree-aware root discovery in CLI, hooks, static generator, and watcher: inside a git worktree, everything resolves to the main checkout so parallel sessions share one SESSIONS.md. Merge guidance no longer switches branches.
+- conductor-hook rewritten: reads hook stdin JSON, resolves its own session via .conductor-links.json or a Branch-column match, one-shot keyed on session_id. The old version never parsed stdin, used a $$ marker that never matched, promoted whichever session was first in planning, and was never registered anywhere.
+- New conductor-session-start (SessionStart): auto-links sessions by branch, writes .conductor-links.json, injects number, persona, task, scope, and the status-update contract as context.
+- Pricing moved to dashboard/pricing.json (Claude 5 lineup, per-model cache multipliers and context windows, as_of date). Unknown models show no cost instead of Sonnet 4.6 rates; cache-write cost corrected from 0.25x to 1.25x of input. Optional ccusage engine via CONDUCTOR_CCUSAGE=1.
+- Plugin packaging: .claude-plugin/plugin.json, hooks/hooks.json, SKILL.md relocated to skills/conductor/ with a root symlink; persona roster discovered from installed claude-team profiles.
+- Hardening: transcript fixtures pin the JSONL contract in CI with a format-drift banner in the dashboard; React vendored for offline use; Node floor documented at 20; SKILL.md synced to the canonical 10-column schema.
+- tests/e2e-drill.sh: register, isolate in worktrees, hook-driven linking and promotion, done and unblock, dependency-order merges, archive. 15 checks, run with both plain git and claude-team worktrees. The drill caught two real bugs before ship: the hook resolved its CLI only via PATH, and claude-team session markers were committable and produced add/add merge conflicts (fixed in claude-team v0.7).
+
+### Decisions Made
+
+- **Unknown model means no number:** a cost dashboard that silently prices Fable 5 at Sonnet rates is worse than one that says "rate unknown". Fallback pricing removed deliberately.
+- **Keep the JSONL parser, fence it with fixtures:** the transcript format is officially internal; fixtures in CI plus a drift banner beat both abandoning passive discovery and trusting it blindly.
+- **Keep and harden over adopt or rebuild:** the market survey found no tool covering merge ordering for human sessions, committed coordination state, personas, or passive session discovery; the commoditized layer (generic session lists) gets no further investment.
+
+### Related
+
+- code-katz/claude-team-cli v0.7 (companion changes)
+
+---
+
 ## [2026-03-30] v2: Live dashboard via Stargx fork, SESSIONS.md integration, auto-linking
 
 **Category:** `milestone`

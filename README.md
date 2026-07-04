@@ -90,7 +90,15 @@ One command. Full visibility. No tab-switching.
 
 ## Installation
 
-### Quick install
+### As a Claude Code plugin (recommended)
+
+```
+/plugin install claude-conductor@code-katz
+```
+
+Installing as a plugin registers everything automatically: the skill, the `/conductor` and `/sessions` commands, the `claude-conductor` CLI on PATH, and both hooks (SessionStart auto-linking and PostToolUse status promotion). Until the `code-katz` marketplace is published, install from the repo directly with `claude --plugin-dir /path/to/claude-conductor`.
+
+### Quick install (script)
 
 ```bash
 git clone https://github.com/code-katz/claude-conductor.git
@@ -117,7 +125,7 @@ If you only want the Claude Code skill and slash commands:
 ```bash
 mkdir -p ~/.claude/skills/conductor
 curl -o ~/.claude/skills/conductor/SKILL.md \
-  https://raw.githubusercontent.com/code-katz/claude-conductor/main/SKILL.md
+  https://raw.githubusercontent.com/code-katz/claude-conductor/main/skills/conductor/SKILL.md
 
 mkdir -p ~/.claude/commands
 curl -o ~/.claude/commands/conductor.md \
@@ -370,7 +378,7 @@ claude-conductor/
 - [Claude Code](https://claude.ai/code)
 - [claude-team-cli](https://github.com/code-katz/claude-team-cli) (recommended, for personas and `/parallel`)
 - jq (required for `link`/`unlink` commands; install with `brew install jq` or `apt install jq`)
-- Node.js 18+ (optional, for live dashboard)
+- Node.js 20+ (optional, for live dashboard)
 
 ---
 
@@ -440,11 +448,20 @@ See [RUNBOOK.md](RUNBOOK.md) for the full operational guide.
 - Integration hooks for devlog, roadmap, and todo skills
 - 157 tests across CLI, static dashboard, and live dashboard
 
+### v1.1
+
+- **Plugin packaging:** installable via the plugin system; hooks register automatically
+- **Claude Code hooks (shipped):** SessionStart auto-links each session to its conductor row (by branch) and injects task context; PostToolUse promotes planning to coding on the session's first edit
+- **Worktree-aware:** CLI, hooks, and dashboard all resolve to the main checkout from inside git worktrees, so every parallel session shares one SESSIONS.md
+- **Claude 5 pricing:** config-driven rates in `dashboard/pricing.json` with per-model context windows; unknown models show no number instead of a wrong one; optional [ccusage](https://github.com/ryoppippi/ccusage) engine via `CONDUCTOR_CCUSAGE=1`
+- **Offline dashboard:** React vendored locally, no CDN dependency
+- **End-to-end drill:** `tests/e2e-drill.sh` exercises the full 3-session worktree workflow, hooks included
+
 ### Next
 
-- **Claude Code hooks:** `SessionStart` hook to auto-assign personas on new session creation
+- **Marketplace:** publish to the `code-katz/claude-plugins` marketplace
 - **Git integration:** detect file conflicts between sessions before they happen
-- **Paperclip bridge:** adapter to sync session state into a Paperclip instance for users who want the full orchestration platform
+- **Agent-teams bridge:** map SESSIONS.md onto Claude Code's experimental native agent teams once it reaches GA
 
 ---
 

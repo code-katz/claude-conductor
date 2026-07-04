@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # tests/dashboard-live.sh — Integration tests for the live Node.js dashboard
 # Usage: bash tests/dashboard-live.sh
-# Requires: Node.js 18+
+# Requires: Node.js 20+
 # Skips gracefully if Node.js is not installed.
 
 set -euo pipefail
@@ -79,7 +79,7 @@ assert_json_field() {
 if ! command -v node >/dev/null 2>&1; then
   echo ""
   echo "$(yellow "⚠") Node.js not found. Skipping live dashboard tests."
-  echo "  Install Node.js 18+ to run these tests."
+  echo "  Install Node.js 20+ to run these tests."
   echo ""
   exit 0
 fi

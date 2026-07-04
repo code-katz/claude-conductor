@@ -975,7 +975,7 @@ cmd_dashboard_live() {
   if ! command -v node >/dev/null 2>&1; then
     echo ""
     echo "$(red "Error:") Node.js is required for the live dashboard."
-    echo "  Install Node.js 18+ or use the static dashboard: $(dim "claude-conductor dashboard --open")"
+    echo "  Install Node.js 20+ or use the static dashboard: $(dim "claude-conductor dashboard --open")"
     echo ""
     return 1
   fi
