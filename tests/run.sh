@@ -1537,6 +1537,28 @@ assert_output_contains "session-start summary for unmatched session" "not regist
 git -C "$SS_ROOT" worktree remove --force "$SS_ROOT-wt" >/dev/null 2>&1 || true
 rm -rf "$SS_ROOT" "$SS_ROOT-wt"
 
+# --- conductor-teams-peek (Phase 4 spike, read-only) ---
+echo ""
+echo "$(bold "teams peek (experimental)")"
+
+PEEK="$REPO_DIR/bin/conductor-teams-peek"
+PEEK_ROOT=$(mktemp -d)
+mkdir -p "$PEEK_ROOT/team-abc12345"
+cat > "$PEEK_ROOT/team-abc12345/1.json" <<'PEEK_EOF'
+{"id":"1","subject":"battles api","status":"completed","owner":"akira","blocks":[],"blockedBy":[]}
+PEEK_EOF
+cat > "$PEEK_ROOT/team-abc12345/2.json" <<'PEEK_EOF'
+{"id":"2","subject":"battle tests","status":"in_progress","owner":"robin","activeForm":"writing tests","blocks":[],"blockedBy":[1]}
+PEEK_EOF
+
+assert_output_contains "peek lists task lists" "team-abc12345" env CLAUDE_TASKS_DIR="$PEEK_ROOT" "$PEEK"
+assert_output_contains "peek maps completed to done" "[done]" env CLAUDE_TASKS_DIR="$PEEK_ROOT" "$PEEK" team-abc12345
+assert_output_contains "peek maps in_progress to coding" "[coding]" env CLAUDE_TASKS_DIR="$PEEK_ROOT" "$PEEK" team-abc12345
+assert_output_contains "peek shows owner as persona" "robin" env CLAUDE_TASKS_DIR="$PEEK_ROOT" "$PEEK" team-abc12345
+assert_output_contains "peek shows blockedBy as dependency" "waiting on #1" env CLAUDE_TASKS_DIR="$PEEK_ROOT" "$PEEK" team-abc12345
+assert_output_contains "peek shows activeForm as activity" "writing tests" env CLAUDE_TASKS_DIR="$PEEK_ROOT" "$PEEK" team-abc12345
+rm -rf "$PEEK_ROOT"
+
 # --- Results ---
 echo "────────────────────────────────────"
 if [[ $fail -eq 0 ]]; then

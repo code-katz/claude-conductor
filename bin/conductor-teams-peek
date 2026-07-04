@@ -1,0 +1,108 @@
+#!/usr/bin/env bash
+# conductor-teams-peek — EXPERIMENTAL read-only view of Claude Code's native
+# task lists (the task tools, and agent-team shared task lists) rendered in
+# conductor terms.
+#
+# Native task lists live at ~/.claude/tasks/<list-id>/<n>.json where
+# <list-id> is a session id, or for agent teams the team name. Fields
+# (verified against Claude Code v2.1.201): id, subject, description,
+# activeForm, status (pending|in_progress|completed), owner (teammate name,
+# agent teams only), blocks[], blockedBy[].
+#
+# Mapping to conductor:
+#   status pending      -> planning
+#   status in_progress  -> coding
+#   status completed    -> done
+#   owner               -> persona
+#   blockedBy           -> depends on
+#   activeForm          -> activity
+#
+# Usage:
+#   conductor-teams-peek              List task lists under ~/.claude/tasks
+#   conductor-teams-peek <list-id>    Show one list as conductor-style rows
+#
+# Read-only by design: agent teams coordinate task claiming with file
+# locking, so this never writes task files (or SESSIONS.md).
+# Requires jq. Part of the Phase 4 agent-teams spike; not wired into
+# anything by default.
+
+set -uo pipefail
+
+TASKS_ROOT="${CLAUDE_TASKS_DIR:-$HOME/.claude/tasks}"
+
+bold()  { printf '\033[1m%s\033[0m' "$*"; }
+green() { printf '\033[32m%s\033[0m' "$*"; }
+dim()   { printf '\033[2m%s\033[0m' "$*"; }
+red()   { printf '\033[31m%s\033[0m' "$*"; }
+
+command -v jq >/dev/null 2>&1 || { echo "$(red "error:") jq is required." >&2; exit 1; }
+[[ -d "$TASKS_ROOT" ]] || { echo "$(dim "No native task lists found ($TASKS_ROOT does not exist).")"; exit 0; }
+
+map_status() {
+  case "$1" in
+    pending)     echo "planning" ;;
+    in_progress) echo "coding" ;;
+    completed)   echo "done" ;;
+    *)           echo "$1" ;;
+  esac
+}
+
+status_icon() {
+  case "$1" in
+    planning) echo "📋" ;;
+    coding)   echo "⚡" ;;
+    done)     echo "✅" ;;
+    *)        echo "❓" ;;
+  esac
+}
+
+if [[ $# -eq 0 ]]; then
+  echo ""
+  echo "$(bold "Native task lists") $(dim "($TASKS_ROOT)")"
+  echo ""
+  found=0
+  for d in "$TASKS_ROOT"/*/; do
+    [[ -d "$d" ]] || continue
+    id=$(basename "$d")
+    total=0; done_ct=0; active_ct=0
+    for f in "$d"*.json; do
+      [[ -f "$f" ]] || continue
+      total=$((total + 1))
+      st=$(jq -r '.status // empty' "$f" 2>/dev/null)
+      [[ "$st" == "completed" ]] && done_ct=$((done_ct + 1))
+      [[ "$st" == "in_progress" ]] && active_ct=$((active_ct + 1))
+    done
+    [[ "$total" -eq 0 ]] && continue
+    printf '  %-40s  %s tasks  %s active  %s done\n' "$id" "$total" "$active_ct" "$done_ct"
+    found=1
+  done
+  [[ "$found" -eq 0 ]] && echo "  $(dim "(none)")"
+  echo ""
+  echo "$(dim "Show one: conductor-teams-peek <list-id>")"
+  echo ""
+  exit 0
+fi
+
+LIST_DIR="$TASKS_ROOT/$1"
+[[ -d "$LIST_DIR" ]] || { echo "$(red "error:") no task list at $LIST_DIR" >&2; exit 1; }
+
+echo ""
+echo "$(bold "Native task list") $(dim "$1") $(dim "— conductor view (read-only)")"
+echo ""
+ls "$LIST_DIR" 2>/dev/null | grep '\.json$' | sort -V | while IFS= read -r name; do
+  f="$LIST_DIR/$name"
+  jq -e '.status == "deleted"' "$f" >/dev/null 2>&1 && continue
+  id=$(jq -r '.id // "?"' "$f")
+  subject=$(jq -r '.subject // "(no subject)"' "$f")
+  status=$(jq -r '.status // "pending"' "$f")
+  owner=$(jq -r '.owner // empty' "$f")
+  active_form=$(jq -r '.activeForm // empty' "$f")
+  deps=$(jq -r '(.blockedBy // []) | map("#" + tostring) | join(", ")' "$f")
+  cstatus=$(map_status "$status")
+  icon=$(status_icon "$cstatus")
+  printf '  #%-3s %s %-10s — %-45s [%s]' "$id" "$icon" "${owner:--}" "$subject" "$cstatus"
+  [[ -n "$deps" ]] && printf ' %s' "$(dim "waiting on $deps")"
+  [[ -n "$active_form" && "$status" == "in_progress" ]] && printf ' %s' "$(dim "($active_form)")"
+  printf '\n'
+done
+echo ""
