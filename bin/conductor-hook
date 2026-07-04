@@ -82,5 +82,9 @@ status=$(sed -n '/^## Active Sessions/,/^## [^A]/p' "$sf" | \
 [[ "$status" == "planning" ]] || { touch "$marker" 2>/dev/null || true; exit 0; }
 
 touch "$marker" 2>/dev/null || true
-claude-conductor u "$num" coding --activity "writing code" >/dev/null 2>&1 || true
+
+# Prefer the sibling CLI (plugin/repo layout); fall back to PATH.
+conductor="$(cd "$(dirname "$0")" && pwd)/claude-conductor"
+[[ -x "$conductor" ]] || conductor="claude-conductor"
+(cd "$dir" 2>/dev/null && "$conductor" u "$num" coding --activity "writing code" >/dev/null 2>&1) || true
 exit 0

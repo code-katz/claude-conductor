@@ -204,7 +204,7 @@ These commands work from any terminal (not just Claude Code):
 The live dashboard is a real-time Node.js web application that auto-detects your Claude Code sessions, tracks token usage and costs, and overlays persona/task data from SESSIONS.md.
 
 ```bash
-# Start the live dashboard (requires Node.js 18+)
+# Start the live dashboard (requires Node.js 20+)
 claude-conductor dashboard --live
 
 # Stop it
