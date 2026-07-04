@@ -109,3 +109,14 @@ echo "  claude-team-cli                    $(dim "# personas and /parallel plann
 echo "  claude-devlog-skill                $(dim "# auto-log session outcomes")"
 echo "  claude-roadmap-skill               $(dim "# track sprint progress on roadmap")"
 echo ""
+echo "$(bold "Automatic status updates (hooks):")"
+echo "  Installing as a plugin registers these automatically. For this manual"
+echo "  install, add to ~/.claude/settings.json to get auto-linking at session"
+echo "  start and planning->coding promotion on first edit:"
+echo ""
+echo '    "hooks": {'
+echo '      "SessionStart": [ { "hooks": [ { "type": "command", "command": "'"$REPO_DIR"'/bin/conductor-session-start" } ] } ],'
+echo '      "PostToolUse":  [ { "matcher": "Edit|Write|NotebookEdit",'
+echo '                          "hooks": [ { "type": "command", "command": "'"$REPO_DIR"'/bin/conductor-hook" } ] } ]'
+echo '    }'
+echo ""

@@ -179,9 +179,30 @@ function loadSessionsFile(filePath) {
 const autoLinks = new Map(); // JSONL sessionId -> { conductorNumber, persona }
 const scannedSessions = new Set(); // sessionIds we've already scanned
 
-const KNOWN_PERSONAS = new Set([
+// Persona roster: discovered from installed claude-team profiles
+// (~/.claude/team/*.md) so a new persona needs no conductor change;
+// falls back to the bundled claude-team-cli roster.
+const DEFAULT_PERSONAS = [
   'akira', 'alex', 'casey', 'jordan', 'kai', 'morgan', 'quinn', 'river', 'robin', 'sage', 'sasha', 'toni'
-]);
+];
+
+function discoverPersonas() {
+  const found = new Set(DEFAULT_PERSONAS);
+  try {
+    const teamDir = path.join(os.homedir(), '.claude', 'team');
+    for (const f of fs.readdirSync(teamDir)) {
+      if (!f.endsWith('.md')) continue;
+      const name = f.replace(/\.md$/, '').toLowerCase();
+      if (name.startsWith('coordinator')) continue;
+      found.add(name);
+    }
+  } catch {
+    // No team install: bundled roster only
+  }
+  return found;
+}
+
+const KNOWN_PERSONAS = discoverPersonas();
 
 function scanSessionForLink(sessionId) {
   const session = sessions.get(sessionId);
@@ -807,6 +828,7 @@ app.get('/api/health', (req, res) => {
     parsedLines: parseStats.lines,
     parseErrors: parseStats.errors,
     formatDrift: parseStats.lines > 20 && errorRate > 0.05,
+    personas: [...KNOWN_PERSONAS].sort(),
   });
 });
 

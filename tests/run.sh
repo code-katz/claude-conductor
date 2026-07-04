@@ -1469,6 +1469,74 @@ fi
 
 echo ""
 
+# --- Plugin surfaces (Phase 2) ---
+echo ""
+echo "$(bold "plugin surfaces")"
+
+total=$((total + 1))
+if python3 -c "import json; json.load(open('$REPO_DIR/.claude-plugin/plugin.json'))" 2>/dev/null; then
+  echo "  $(green "✓") plugin.json is valid JSON"
+  pass=$((pass + 1))
+else
+  echo "  $(red "✗") plugin.json is valid JSON"
+  fail=$((fail + 1))
+fi
+
+total=$((total + 1))
+if python3 -c "
+import json
+d = json.load(open('$REPO_DIR/hooks/hooks.json'))
+assert 'SessionStart' in d['hooks'] and 'PostToolUse' in d['hooks']
+" 2>/dev/null; then
+  echo "  $(green "✓") hooks.json registers SessionStart and PostToolUse"
+  pass=$((pass + 1))
+else
+  echo "  $(red "✗") hooks.json registers SessionStart and PostToolUse"
+  fail=$((fail + 1))
+fi
+
+total=$((total + 1))
+if [[ -f "$REPO_DIR/skills/conductor/SKILL.md" && -L "$REPO_DIR/SKILL.md" ]] && head -3 "$REPO_DIR/SKILL.md" | grep -q "claude-conductor"; then
+  echo "  $(green "✓") SKILL.md lives in skills/conductor with working root symlink"
+  pass=$((pass + 1))
+else
+  echo "  $(red "✗") SKILL.md lives in skills/conductor with working root symlink"
+  fail=$((fail + 1))
+fi
+
+# conductor-session-start: linked-session context + link file
+SS_ROOT=$(mktemp -d)
+git init -q "$SS_ROOT"
+git -C "$SS_ROOT" commit -q --allow-empty -m init
+(cd "$SS_ROOT" && printf '\n' | "$CLI" init >/dev/null 2>&1 && "$CLI" add --persona Akira --task "hook drill" --files "src/" >/dev/null 2>&1)
+git -C "$SS_ROOT" add -A >/dev/null 2>&1 && git -C "$SS_ROOT" commit -q -m sessions
+SS_BRANCH=$(cd "$SS_ROOT" && "$CLI" status 2>/dev/null | grep -o 'session/1-akira[a-z0-9-]*' | head -1)
+git -C "$SS_ROOT" worktree add -q "$SS_ROOT-wt" -b "$SS_BRANCH" 2>/dev/null
+
+SS_OUT=$(printf '{"session_id":"ss-test-1","cwd":"%s"}' "$SS_ROOT-wt" | "$REPO_DIR/bin/conductor-session-start")
+assert_output_contains "session-start injects linked session context" "session #1 (Akira)" echo "$SS_OUT"
+assert_output_contains "session-start context includes the task" "hook drill" echo "$SS_OUT"
+
+total=$((total + 1))
+if python3 -c "
+import json
+d = json.load(open('$SS_ROOT/.conductor-links.json'))
+assert any(e['sessionId'] == 'ss-test-1' and e['conductorNumber'] == 1 for e in d)
+" 2>/dev/null; then
+  echo "  $(green "✓") session-start writes .conductor-links.json entry"
+  pass=$((pass + 1))
+else
+  echo "  $(red "✗") session-start writes .conductor-links.json entry"
+  fail=$((fail + 1))
+fi
+
+# Unmatched branch gets the summary, not a false link
+SS_OUT2=$(printf '{"session_id":"ss-test-2","cwd":"%s"}' "$SS_ROOT" | "$REPO_DIR/bin/conductor-session-start")
+assert_output_contains "session-start summary for unmatched session" "not registered" echo "$SS_OUT2"
+
+git -C "$SS_ROOT" worktree remove --force "$SS_ROOT-wt" >/dev/null 2>&1 || true
+rm -rf "$SS_ROOT" "$SS_ROOT-wt"
+
 # --- Results ---
 echo "────────────────────────────────────"
 if [[ $fail -eq 0 ]]; then
