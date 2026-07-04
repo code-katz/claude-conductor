@@ -1496,7 +1496,7 @@ else
 fi
 
 total=$((total + 1))
-if [[ -f "$REPO_DIR/skills/conductor/SKILL.md" && -L "$REPO_DIR/SKILL.md" ]] && head -3 "$REPO_DIR/SKILL.md" | grep -q "claude-conductor"; then
+if [[ -f "$REPO_DIR/skills/conductor/SKILL.md" && -L "$REPO_DIR/SKILL.md" ]] && head -3 "$REPO_DIR/SKILL.md" | grep -q "name: conductor"; then
   echo "  $(green "✓") SKILL.md lives in skills/conductor with working root symlink"
   pass=$((pass + 1))
 else
