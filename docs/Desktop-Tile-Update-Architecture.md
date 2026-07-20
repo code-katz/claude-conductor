@@ -2,7 +2,7 @@
 
 **Prepared:** March 30, 2026
 **Author:** Claude (research session)
-**Context:** Investigating how to keep desktop tiles updated with Claude session activities and statuses in real-time.
+**Context:** Investigating how to keep desktop tiles updated with Claude session activities and statuses in real-time. Goal: a rich desktop app experience with a local server.
 
 ---
 
@@ -23,498 +23,457 @@ claude-conductor v0.5 provides session tile updates via:
 2. **Poll-based:** 3-second polling wastes bandwidth when idle, has up-to-3s latency on changes
 3. **Full-page fetch:** Each poll downloads the entire HTML file even when nothing changed
 4. **No push notifications:** Status changes don't proactively alert the user
-5. **Single-machine:** Dashboard is localhost-only (by design, but limits mobile/remote monitoring)
-6. **No event stream:** Changes are file-regeneration-based, not event-based — no history of state transitions
+5. **No event stream:** Changes are file-regeneration-based, not event-based — no history of state transitions
+6. **No interactivity:** Dashboard is read-only — can't trigger actions (mark done, unblock, etc.)
 
 ---
 
-## 2. Architecture Options
+## 2. How Paperclip Solved This
 
-### Option A: Enhanced File-Watching with Server-Sent Events (SSE)
+Paperclip (36k+ GitHub stars, open-source agent orchestration) solves the same problem — keeping a dashboard live with multiple parallel AI agent sessions. Their architecture is worth studying because it's production-proven and purpose-built for this exact use case.
 
-**How it works:** Replace the fetch-polling loop with a lightweight server that watches `SESSIONS.md` (or a derived JSON file) for changes and pushes updates to the browser via SSE.
+### 2.1 Tech Stack
+
+| Layer | Technology |
+|-------|-----------|
+| Frontend | React 19, Vite 6, TanStack Query, Radix UI, Tailwind CSS 4 |
+| Backend | Node.js, Express.js, TypeScript throughout |
+| Database | PostgreSQL 17 (or embedded PGlite for local dev) via Drizzle ORM |
+| Real-time | Native WebSockets (not Socket.IO, not SSE) |
+| Monorepo | pnpm workspaces (`server/`, `ui/`, `cli/`, `packages/`) |
+
+### 2.2 Real-Time Architecture
+
+Paperclip's real-time update flow is elegant:
 
 ```
-CLI command → writes SESSIONS.md → fswatch/inotify detects change
-  → SSE server pushes event → browser updates tiles instantly
+Agent process → REST API call → Server service layer
+  → writes to PostgreSQL
+  → publishes to in-process EventEmitter (keyed by companyId)
+    → WebSocket server forwards to connected clients
+      → React LiveUpdatesProvider receives event
+        → TanStack Query cache invalidation
+          → React components re-render with fresh data
 ```
 
-**Implementation:**
+**Key components:**
 
-| Component | Technology | Notes |
-|-----------|-----------|-------|
-| File watcher | `inotifywait` (Linux), `fswatch` (macOS) | OS-native, zero latency |
-| SSE server | Python `aiohttp` or bash + `ncat` | Lightweight, HTTP/1.1 streaming |
-| Client | `EventSource` API (built into all browsers) | Automatic reconnection, no polling |
-| Data format | JSON diff (only changed fields) | Minimal bandwidth |
+1. **In-process event bus** (`live-events.ts`): A Node.js `EventEmitter` scoped per company. Functions: `publishLiveEvent({companyId, type, payload})` and `subscribeCompanyLiveEvents(companyId, listener)`. Each event gets a monotonically incrementing ID and ISO timestamp.
 
-**Pros:**
-- Near-instant updates (sub-100ms from CLI command to tile refresh)
-- Eliminates wasteful polling — zero traffic when idle
-- Simple protocol (SSE is just HTTP with `text/event-stream`)
-- Keeps the bash CLI as the source of truth
-- Works with existing browser-based dashboard
-- `EventSource` auto-reconnects on disconnect
+2. **WebSocket server** (`live-events-ws.ts`): Attached to the HTTP server at `/api/companies/{companyId}/events/ws`. Supports three auth modes: local trusted, session cookie, and API key. Maintains 30-second ping/pong health checks.
 
-**Cons:**
-- Adds a Python dependency for the SSE server (already optional for `serve-dashboard`)
-- Still browser-only — no OS-native widget
-- Requires the server process to be running
-- `inotifywait` / `fswatch` are platform-specific
+3. **Event types** (well-defined constants):
+   - `heartbeat.run.queued` / `heartbeat.run.status` / `heartbeat.run.event` / `heartbeat.run.log`
+   - `agent.status`
+   - `activity.logged`
+   - `plugin.ui.updated` / `plugin.worker.crashed` / `plugin.worker.restarted`
 
-**Complexity:** Low-Medium
-**Recommendation:** Strong candidate for v0.6. Natural evolution of current architecture.
+4. **React update pattern**: The `LiveUpdatesProvider` context receives WebSocket events and **invalidates TanStack Query caches** — it does NOT directly update component state. This triggers automatic refetches, so components always get fresh data from the server. Toast notifications are rate-limited (3 per 10-second window per category) and suppressed during reconnection.
+
+5. **Log streaming**: Dual-channel approach — WebSocket for immediate log chunks + HTTP polling every 2 seconds as a reliability fallback. Deduplication via `dedupeKey` strings.
+
+### 2.3 Agent-to-Server IPC
+
+Agents communicate back to Paperclip via **REST API calls**. The heartbeat protocol:
+
+1. Agent calls `GET /api/agents/me` to get identity
+2. Agent calls `GET /api/companies/{id}/issues?assigneeAgentId={id}` to get assignments
+3. Agent calls `POST /api/issues/{id}/checkout` to atomically claim a task
+4. Agent does work, calling `PATCH /api/issues/{id}` with status updates
+5. Agent can delegate via `POST /api/companies/{id}/issues` to create subtasks
+
+The server-side heartbeat service spawns agent processes via pluggable adapters (10 adapter types: Claude, Codex, Cursor, Gemini, etc.), captures stdout/stderr, parses usage metrics, and persists results.
+
+### 2.4 Data Model
+
+| Table | Purpose |
+|-------|---------|
+| `agents` | Core agent data: status, role, budget, adapter config. Indexed on `(companyId, status)` |
+| `agent_runtime_state` | Per-agent runtime: session ID, token counts, cost, last error |
+| `heartbeat_runs` | Per-execution record: status, timing, exit code, logs, retry tracking |
+| `activity_log` | Every mutation: actor, action, entity, details (jsonb) |
+| `issue_comments` | Threaded comments on issues/tasks |
+
+Agent statuses: `active | paused | idle | running | error | pending_approval | terminated`
+
+### 2.5 Key Design Decisions (and what to learn from them)
+
+| Decision | Rationale | Lesson for Conductor |
+|----------|-----------|---------------------|
+| **WebSocket over SSE** | Bidirectional — agents can receive commands too | WebSocket enables interactive tiles (mark done, unblock) |
+| **EventEmitter over message broker** | Simple, no external dependency, single-process is fine for local use | We don't need Redis/RabbitMQ for a local tool |
+| **Cache invalidation over direct state push** | Components always get consistent data from server, not stale patches | Avoids the hard problem of client-side state sync |
+| **REST API for agent IPC** | Universal — any language/runtime can POST to an HTTP endpoint | Bash can `curl` to a local server easily |
+| **PostgreSQL over flat files** | Structured queries, transactions, concurrent access | Worth considering for conductor's state store |
+| **Dual-channel log streaming** | WebSocket for speed, HTTP polling for reliability | Belt-and-suspenders approach is practical |
 
 ---
 
-### Option B: Unix Domain Socket + Event Bus
+## 3. Target Architecture: Conductor Desktop
 
-**How it works:** The CLI writes status changes to both SESSIONS.md and broadcasts them over a Unix domain socket. Any listener (browser server, system tray app, OS widget, terminal UI) can subscribe.
+A single implementation that gives claude-conductor a rich desktop experience with a local server. No phased approach — build the target directly.
+
+### 3.1 Architecture Overview
 
 ```
-CLI command → writes SESSIONS.md
-            → sends JSON event to /tmp/conductor.sock
-              → SSE server relays to browser
-              → tray app updates badge
-              → terminal dashboard refreshes
+┌─────────────────────────────────────────────────────────────────┐
+│                     Conductor Desktop App                       │
+│                                                                 │
+│  ┌──────────────┐  ┌──────────────────┐  ┌──────────────────┐  │
+│  │  System Tray  │  │  Floating Tiles  │  │  Full Dashboard  │  │
+│  │  (status icon │  │  (mini cards,    │  │  (session grid,  │  │
+│  │   + badge)    │  │   always on top) │  │   activity feed) │  │
+│  └──────┬───────┘  └────────┬─────────┘  └────────┬─────────┘  │
+│         │                   │                      │            │
+│         └───────────────────┼──────────────────────┘            │
+│                             │                                   │
+│                    ┌────────▼────────┐                          │
+│                    │  WebSocket Hub  │                          │
+│                    │  (event stream) │                          │
+│                    └────────┬────────┘                          │
+│                             │                                   │
+├─────────────────────────────┼───────────────────────────────────┤
+│                     Local Server                                │
+│                             │                                   │
+│  ┌──────────────┐  ┌───────▼───────┐  ┌──────────────────────┐ │
+│  │  REST API     │  │  Event Bus    │  │  File Watcher        │ │
+│  │  POST /status │  │  (EventEmitter│  │  (SESSIONS.md or     │ │
+│  │  GET /sessions│  │   per project)│  │   SQLite changes)    │ │
+│  │  POST /action │  │              │  │                      │ │
+│  └──────┬───────┘  └───────┬───────┘  └──────────┬───────────┘ │
+│         │                   │                      │            │
+│         └───────────────────┼──────────────────────┘            │
+│                             │                                   │
+│                    ┌────────▼────────┐                          │
+│                    │   State Store   │                          │
+│                    │  (SQLite WAL)   │                          │
+│                    └─────────────────┘                          │
+└─────────────────────────────────────────────────────────────────┘
+         ▲                    ▲                    ▲
+         │                    │                    │
+    ┌────┴────┐         ┌────┴────┐         ┌─────┴─────┐
+    │ Session │         │ Session │         │ conductor │
+    │ 1 (bash)│         │ 2 (bash)│         │ CLI       │
+    │ curl    │         │ curl    │         │ curl/sock │
+    └─────────┘         └─────────┘         └───────────┘
 ```
 
-**Implementation:**
+### 3.2 Technology Choices
 
-| Component | Technology | Notes |
-|-----------|-----------|-------|
-| Socket | Unix domain socket at `/tmp/conductor-<project>.sock` | Zero-network, fast IPC |
-| Event format | JSON lines (one event per line) | `{"type":"status","session":2,"status":"coding","activity":"writing tests"}` |
-| Publisher | bash: `echo '...' | socat - UNIX-CONNECT:/tmp/conductor.sock` | Lightweight |
-| Subscribers | Any process: Python SSE server, Node tray app, `nc` for debugging | Multi-consumer |
+| Component | Choice | Rationale |
+|-----------|--------|-----------|
+| **App framework** | **Tauri v2** | 5-10 MB binary (vs Electron 150 MB), native tray, Rust backend, WebView for UI. Cross-platform macOS + Linux. |
+| **UI** | **React + Vite + Tailwind** | Proven stack (Paperclip uses it). Existing dashboard CSS can be ported. TanStack Query for data fetching. |
+| **Local server** | **Embedded in Tauri (Rust)** or **standalone Node.js/Deno** | Tauri's Rust backend can serve HTTP + WebSocket. Alternatively, a standalone server keeps the app optional. |
+| **State store** | **SQLite (WAL mode)** | Replaces SESSIONS.md for structured queries. Concurrent reads, serialized writes. Bash can write via `sqlite3` CLI. |
+| **Real-time** | **WebSocket** | Following Paperclip's pattern. Bidirectional for interactive tiles. |
+| **Event bus** | **In-process EventEmitter** | Following Paperclip's pattern. No external broker needed for local single-process server. |
+| **Agent IPC** | **REST API (localhost)** | Bash sessions `curl http://localhost:PORT/api/sessions/1/status` — universal, no new CLI dependencies. |
+| **Notifications** | **OS-native via Tauri** | Desktop notifications for key events: session done, conflict detected, needs response. |
 
-**Event Types:**
-```json
-{"type": "session.created", "session": 3, "persona": "Akira", "task": "..."}
-{"type": "session.status", "session": 3, "status": "coding", "activity": "writing tests"}
-{"type": "session.done", "session": 3, "duration": "2h 15m"}
-{"type": "conflict.detected", "sessions": [2, 3], "files": ["src/lib/"]}
-{"type": "dashboard.refresh"}
+### 3.3 Why Tauri Over Electron
+
+| Dimension | Tauri v2 | Electron |
+|-----------|----------|----------|
+| Binary size | ~5-10 MB | ~150 MB |
+| Memory | ~30-50 MB | ~100-200 MB |
+| Backend | Rust (native perf, type-safe) | Node.js |
+| System tray | Native API, dynamic icons | Electron tray (works but heavy) |
+| Window mgmt | Frameless, always-on-top, skip taskbar | Same, but more mature |
+| WebView | System WebView (no bundled Chromium) | Bundled Chromium |
+| Ecosystem | Growing, smaller | Massive, mature |
+| Learning curve | Rust backend (steeper) | JS everywhere (easier) |
+
+**For a local tool that stays in the tray and shows floating tiles, Tauri's small footprint wins.** The UI is still HTML/CSS/JS — only the backend plumbing is Rust.
+
+**Alternative: Standalone server + browser.** If the Tauri/Rust overhead is too much, a standalone Node.js server with WebSocket provides the same real-time architecture, and the user opens `localhost:PORT` in a browser. This loses the tray icon and native notifications but keeps the core architecture identical. The server could be built first, and the Tauri shell added later — they're independent layers.
+
+### 3.4 State Store: SQLite Over Markdown
+
+SESSIONS.md works for the CLI, but a desktop app needs structured queries. SQLite in WAL mode is the natural upgrade:
+
+```sql
+CREATE TABLE sessions (
+    id INTEGER PRIMARY KEY,
+    persona TEXT NOT NULL,
+    task TEXT NOT NULL,
+    files TEXT,
+    status TEXT NOT NULL DEFAULT 'planning',
+    activity TEXT,
+    started_at TEXT NOT NULL,
+    depends_on TEXT,
+    notes TEXT,
+    project TEXT NOT NULL
+);
+
+CREATE TABLE events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+    type TEXT NOT NULL,
+    session_id INTEGER,
+    data TEXT,  -- JSON
+    project TEXT NOT NULL
+);
+
+CREATE TABLE completed_sessions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    original_id INTEGER,
+    persona TEXT,
+    task TEXT,
+    status TEXT,
+    duration TEXT,
+    completed_at TEXT,
+    project TEXT NOT NULL
+);
 ```
 
-**Pros:**
-- Decouples producers from consumers — any number of UIs can subscribe
-- Enables future tray apps, terminal UIs, mobile push relays
-- Unix sockets are fast (no TCP overhead) and secure (filesystem permissions)
-- Event stream provides a history/audit trail
-- Bash can publish with `socat` or `nc` — no new runtime dependency
+**Bash compatibility:** The `sqlite3` CLI ships with macOS and most Linux distros. The conductor CLI can write to SQLite just as easily as to a markdown file:
 
-**Cons:**
-- Requires a socket broker/hub process (or each subscriber connects independently)
-- More moving parts than file watching
-- Unix sockets don't exist on Windows (named pipes instead)
-- Need to handle subscriber connect/disconnect gracefully
-- `socat` may not be installed by default on all systems
-
-**Complexity:** Medium
-**Recommendation:** Best long-term architecture. Invest here if planning tray apps or terminal UIs.
-
----
-
-### Option C: OS-Native Desktop Widgets
-
-#### macOS: WidgetKit (macOS 14+ Sonoma)
-
-**How it works:** A native Swift app provides a WidgetKit extension that reads conductor state and displays session tiles in Notification Center / Desktop.
-
-- WidgetKit uses a **timeline-based model**: the widget declares snapshots at points in time, and the OS renders them
-- Updates are **not real-time** — widgets refresh on a system-controlled schedule (typically 5-15 min minimum) or when the app explicitly reloads the timeline
-- Can use App Intents for interactive buttons (mark done, etc.)
-- Data sharing via App Groups (shared UserDefaults or file container)
-
-**Update flow:**
-```
-CLI command → writes JSON to ~/Library/Group Containers/conductor/state.json
-           → signals widget reload via `WidgetCenter.shared.reloadAllTimelines()`
-             (requires a helper process or XPC)
-```
-
-**Pros:**
-- Native OS integration — visible on desktop and Notification Center without a browser
-- Beautiful, consistent with system UI
-- Low power — OS manages refresh schedule
-- Interactive widgets (macOS 17+) can trigger actions
-
-**Cons:**
-- macOS only
-- Requires a compiled Swift app (major departure from bash-only philosophy)
-- Widget refresh is throttled by the OS — not truly real-time
-- Complex development toolchain (Xcode, Swift, signing)
-- App Groups / XPC needed to bridge bash CLI to widget
-- WidgetKit has strict size constraints and limited layout options
-
-**Complexity:** High
-**Recommendation:** Not recommended for near-term. Consider if a native macOS app wrapper is ever built.
-
-#### Linux: KDE Plasma Widgets / GNOME Extensions
-
-**Plasma Widget:** QML-based, can read files/sockets. Decent API, but KDE-specific.
-**GNOME Extension:** JavaScript (GJS), can use GLib file monitoring. GNOME-specific.
-
-Both are desktop-environment-specific and would require separate implementations. Neither has significant adoption for developer tooling.
-
-**Recommendation:** Not recommended. The audience overlap (conductor users on KDE/GNOME who want native widgets) is too small.
-
-#### Windows: Win32 Widgets (Windows 11)
-
-Windows 11 introduced a widgets board (Adaptive Cards + widget providers). Requires a packaged Win32 or UWP app. The conductor doesn't target Windows natively.
-
-**Recommendation:** Not applicable given current platform targets.
-
----
-
-### Option D: System Tray App with Floating Dashboard
-
-**How it works:** A lightweight tray application shows session status in the system tray icon (badge count, color coding) and can spawn a floating always-on-top dashboard window.
-
-**Implementation Options:**
-
-| Framework | Language | Tray | Floating Window | Size |
-|-----------|----------|------|-----------------|------|
-| **Tauri** | Rust + HTML/CSS/JS | Native tray API | WebView window, always-on-top | ~5-10 MB |
-| **Electron** | JS + HTML/CSS | Electron tray | BrowserWindow, always-on-top | ~150 MB |
-| **rumtk/tray** | Rust | libappindicator/cocoa | Custom rendering | ~2 MB |
-| **PyQt/PySide** | Python | QSystemTrayIcon | QWidget popup | ~30 MB |
-| **Go + Fyne** | Go | systray package | Fyne window | ~15 MB |
-
-**Tauri (Recommended):**
-```
-Tray icon → shows session count badge
-         → click opens floating mini-dashboard (300x400px)
-         → uses existing dashboard HTML/CSS (dark theme)
-         → subscribes to conductor events via Unix socket or file watch
-         → native notifications on status changes
-```
-
-**Pros:**
-- Always visible in the tray — no browser tab needed
-- Floating window can use existing HTML/CSS with zero redesign
-- Tauri is ~5-10 MB (vs Electron's 150 MB)
-- Cross-platform (macOS + Linux)
-- Can show native OS notifications (session done, conflict detected, needs response)
-- Tray icon can change color/badge based on aggregate status
-
-**Cons:**
-- Introduces Rust/Tauri as a dependency (significant build complexity)
-- Needs to be compiled and distributed
-- Another process to manage (start on login, keep running)
-- Tray behavior differs across Linux DEs (some don't support system tray)
-
-**Complexity:** Medium-High
-**Recommendation:** Good for v1.0+ if the user base grows. Overkill for current solo-developer usage.
-
----
-
-### Option E: Terminal-Based Live Dashboard (TUI)
-
-**How it works:** A persistent terminal UI (like `htop` or `lazygit`) renders session tiles in the terminal with real-time updates.
-
-**Implementation Options:**
-
-| Library | Language | Notes |
-|---------|----------|-------|
-| **gum/bubbletea** | Go | Beautiful TUI framework, used by charm.sh tools |
-| **blessed/blessed-contrib** | Node.js | Dashboard-style terminal widgets |
-| **rich/textual** | Python | Modern TUI with CSS-like styling |
-| **bash + tput/ANSI** | Bash | Zero-dependency, limited but functional |
-
-**Pure Bash Approach:**
 ```bash
-# Watch SESSIONS.md and redraw on change
-watch_and_render() {
-  while true; do
-    clear
-    render_session_tiles  # ANSI-colored output
-    inotifywait -qq -e modify SESSIONS.md 2>/dev/null || sleep 3
-  done
-}
+sqlite3 "$DB" "UPDATE sessions SET status='coding', activity='writing tests' WHERE id=1"
+sqlite3 "$DB" "INSERT INTO events (type, session_id, data, project) VALUES ('session.status', 1, '{\"status\":\"coding\",\"prev\":\"planning\"}', '$PROJECT')"
 ```
 
-**Pros:**
-- Zero new dependencies (bash + ANSI codes)
-- Lives in the terminal where the user already works
-- Instant refresh via file watching
-- Could be a simple `claude-conductor watch` command
-- No browser, no server, no compiled binary
+**Migration path:** Keep SESSIONS.md generation as a read-only export from SQLite for backward compatibility and human readability.
 
-**Cons:**
-- Takes up a terminal pane
-- Limited visual fidelity compared to HTML dashboard
-- ANSI rendering differs across terminals
-- Can't show persona icons
-- No clickable actions
+### 3.5 Real-Time Update Flow (Paperclip Pattern)
 
-**Complexity:** Low
-**Recommendation:** Strong candidate for a quick win. A `claude-conductor watch` command with ANSI tiles would complement the browser dashboard.
+Following Paperclip's proven architecture, adapted for conductor:
+
+```
+1. CLI command runs:
+   $ claude-conductor update 1 coding --activity "writing tests"
+
+2. CLI writes to SQLite:
+   UPDATE sessions SET status='coding', activity='writing tests' WHERE id=1;
+   INSERT INTO events (...) VALUES ('session.status', 1, '{"status":"coding"}', ...);
+
+3. CLI notifies the local server (one of):
+   a. curl -s http://localhost:8484/api/notify -d '{"type":"session.status","session":1}'
+   b. Write to a Unix socket: echo '...' | nc -U /tmp/conductor.sock
+   c. Server watches SQLite file via inotify/FSEvents (no explicit notify needed)
+
+4. Server's event bus publishes:
+   publishEvent({ project: "myapp", type: "session.status", payload: { session: 1, status: "coding" } })
+
+5. WebSocket server broadcasts to all connected clients.
+
+6. React UI receives event:
+   - TanStack Query invalidates ['sessions'] cache → automatic refetch
+   - Tile #1 re-renders with "coding" status and "writing tests" activity
+   - Toast notification: "Session #1 (Akira) → coding"
+
+7. System tray updates:
+   - Badge count recalculated
+   - Icon color updated (green = all healthy, yellow = blocked, red = error)
+```
+
+### 3.6 REST API Design
+
+```
+GET    /api/sessions                  → all active sessions
+GET    /api/sessions/:id              → single session detail
+POST   /api/sessions                  → create session (from CLI start)
+PATCH  /api/sessions/:id              → update status/activity
+DELETE /api/sessions/:id              → abandon session
+
+POST   /api/sessions/:id/done         → mark done
+POST   /api/sessions/:id/merge        → mark merged
+
+GET    /api/events?since=<timestamp>  → event stream (HTTP fallback)
+GET    /api/conflicts                 → current file scope conflicts
+GET    /api/merge-order               → dependency-ordered merge sequence
+
+WS     /ws/events                     → WebSocket event stream
+```
+
+**CLI integration:** The existing bash CLI gains a `--server` mode where commands hit the REST API instead of writing SESSIONS.md directly:
+
+```bash
+# Current (file-based):
+claude-conductor update 1 coding --activity "writing tests"
+# → writes SESSIONS.md, regenerates HTML
+
+# New (server-based):
+claude-conductor update 1 coding --activity "writing tests"
+# → curl -X PATCH localhost:8484/api/sessions/1 \
+#     -d '{"status":"coding","activity":"writing tests"}'
+# → server updates SQLite, broadcasts event, tiles update instantly
+```
+
+The CLI auto-detects whether the server is running and falls back to file-based mode if not.
+
+### 3.7 UI: Three Display Modes
+
+**1. System Tray (always visible)**
+- Tray icon with session count badge
+- Icon color = aggregate status (green/yellow/red)
+- Right-click menu: session list with status, "Open Dashboard", "Quit"
+- Left-click: toggle floating tiles
+
+**2. Floating Tiles (always-on-top mini cards)**
+- Small frameless window, always on top, skip taskbar
+- Compact session cards: persona icon, status badge, activity line
+- Click-through when not hovered (doesn't steal focus)
+- Draggable, position remembered
+- Can be toggled from tray or keyboard shortcut
+
+```
+┌─────────────────────────┐
+│ ● Akira  #1  ⚡ coding  │
+│   writing tests  (45m)  │
+├─────────────────────────┤
+│ ● Kai    #2  🔍 review  │
+│   self-review    (1h)   │
+├─────────────────────────┤
+│ ● Robin  #3  🚫 blocked │
+│   waiting on #1  (30m)  │
+└─────────────────────────┘
+```
+
+**3. Full Dashboard (main window)**
+- Opened from tray or `conductor dashboard`
+- Full session grid with all card details (existing design, ported)
+- Activity feed / event log sidebar
+- Conflict warnings
+- Merge order visualization
+- Interactive: click to mark done, update status, add notes
+
+### 3.8 Notifications
+
+Following the chat-app badge model (Slack/Discord two-tier approach):
+
+| Event | Tray | Desktop Notification | Sound |
+|-------|------|---------------------|-------|
+| Session done | Badge update, green flash | "Session #1 (Akira) completed" | Optional chime |
+| Needs response | Badge + pulsing dot | "Session #2 (Kai) needs your input" | Alert sound |
+| Conflict detected | Red icon | "File conflict: #2 and #3 overlap on src/lib/" | Alert sound |
+| Session blocked | Yellow icon | Silent (shown in tiles) | None |
+| All sessions done | Green icon, badge clears | "All sessions complete" | Optional chime |
+
+Rate-limited: max 3 notifications per 10-second window (following Paperclip's pattern).
 
 ---
 
-### Option F: WebSocket Upgrade (Browser Dashboard)
+## 4. Implementation Plan
 
-**How it works:** Replace the current fetch-polling with a proper WebSocket connection between the dashboard and a local server.
+### Phase 1: Local Server + WebSocket (the foundation)
 
-```
-CLI command → writes SESSIONS.md → server detects change
-           → pushes JSON patch over WebSocket → browser applies diff
-```
+Build the server that everything else connects to. This is independently useful — even without the Tauri shell, it powers the browser dashboard with real-time updates.
 
-**vs. SSE (Option A):**
+| Task | Detail |
+|------|--------|
+| **SQLite state store** | Schema from 3.4. Migration script from SESSIONS.md. `sqlite3` CLI wrapper functions for bash. |
+| **REST API server** | Node.js/Express or Deno. Routes from 3.6. Reads/writes SQLite. |
+| **Event bus** | In-process EventEmitter. Every state mutation publishes an event. |
+| **WebSocket server** | Attached to HTTP server. Broadcasts events to connected clients. |
+| **File watcher** | Watch SQLite DB file for external changes (bash CLI writes). Publish events on change. |
+| **CLI integration** | `claude-conductor` detects running server, uses REST API. Falls back to direct SQLite/file writes. |
+| **Browser dashboard** | Port existing HTML/CSS to React. Connect via WebSocket. TanStack Query for data. |
 
-| Aspect | SSE | WebSocket |
-|--------|-----|-----------|
-| Direction | Server → Client only | Bidirectional |
-| Protocol | HTTP/1.1 | Upgrade to ws:// |
-| Reconnection | Built-in (EventSource) | Must implement |
-| Complexity | Lower | Higher |
-| Use case fit | Dashboard read-only | Dashboard with interactive actions |
+**Deliverable:** `localhost:8484` serves a live-updating React dashboard. CLI commands update tiles instantly via WebSocket.
 
-**Recommendation:** SSE (Option A) is simpler and sufficient for a read-only dashboard. WebSocket is only needed if the dashboard needs to send commands back (e.g., clicking "mark done" on a tile).
+### Phase 2: Desktop App Shell (the experience)
 
----
+Wrap the server + UI in a Tauri app for native desktop integration.
 
-## 3. Recommended Architecture: Layered Event System
+| Task | Detail |
+|------|--------|
+| **Tauri project scaffold** | Tauri v2 with React frontend from Phase 1. |
+| **System tray** | Dynamic icon (color + badge). Context menu with session list. |
+| **Floating tiles window** | Frameless, always-on-top, skip-taskbar. Compact tile layout. |
+| **Full dashboard window** | Opens from tray. Full session grid + activity feed. |
+| **Native notifications** | Tauri notification plugin. Events from 3.8 table. |
+| **Auto-launch** | Start on login, minimize to tray. |
+| **Interactive actions** | Click "Done" on a tile → PATCH /api/sessions/:id/done. |
 
-The strongest architecture combines multiple options into layers, each building on the previous:
+**Deliverable:** A tray app with floating tiles and native notifications.
 
-### Layer 1: Event File (v0.6 — immediate)
-
-Add a lightweight event log alongside SESSIONS.md:
-
-```
-.conductor-events.jsonl
-```
-
-Each CLI command appends a JSON line:
-```json
-{"ts":"2026-03-30T10:15:23Z","type":"status","session":2,"data":{"status":"coding","activity":"writing tests"}}
-{"ts":"2026-03-30T10:18:45Z","type":"conflict","data":{"sessions":[2,3],"files":["src/lib/"]}}
-```
-
-**Why:** This decouples event production (CLI) from consumption (dashboard, tray, TUI). The CLI already writes SESSIONS.md — appending one JSON line is trivial in bash. Consumers can `tail -f` the file, use `inotifywait`, or poll with a cursor.
-
-### Layer 2: SSE Server (v0.6)
-
-Upgrade `serve-dashboard` to:
-1. Watch `.conductor-events.jsonl` for new lines
-2. Stream new events to connected browsers via SSE
-3. Serve the dashboard HTML as before
-
-```python
-# Pseudo-code for SSE endpoint
-async def event_stream(request):
-    with open('.conductor-events.jsonl') as f:
-        f.seek(0, 2)  # Start at end
-        while True:
-            line = f.readline()
-            if line:
-                yield f"data: {line}\n\n"
-            else:
-                await asyncio.sleep(0.1)
-```
-
-Dashboard JS switches from fetch-polling to:
-```javascript
-const events = new EventSource('/events');
-events.onmessage = (e) => {
-    const event = JSON.parse(e.data);
-    updateTile(event.session, event.data);
-};
-```
-
-### Layer 3: Terminal Watch (v0.7)
-
-Add `claude-conductor watch` that reads `.conductor-events.jsonl` and renders ANSI tiles:
-
-```
-┌─────────────────────┐ ┌─────────────────────┐
-│ #1 Akira            │ │ #2 Kai              │
-│ ⚡ coding           │ │ 🔍 reviewing        │
-│ writing tests       │ │ self-review         │
-│ src/lib/auth/       │ │ src/api/routes/     │
-│ 45m                 │ │ 1h 12m              │
-└─────────────────────┘ └─────────────────────┘
-```
-
-### Layer 4: Tray App (v1.0+, optional)
-
-A Tauri tray app that:
-1. Reads `.conductor-events.jsonl` via file watch
-2. Shows session count in tray badge
-3. Pops native notifications on key events (done, conflict, needs response)
-4. Opens a floating mini-dashboard (reusing existing HTML/CSS)
+**Note:** These phases are not a "build throwaway work first" approach. Phase 1 produces the server and React UI that Phase 2 wraps in a native shell. Nothing gets thrown away — Phase 2 is purely additive.
 
 ---
 
-## 4. Implementation Roadmap
+## 5. What We Borrow From Paperclip
 
-### v0.6: Event Log + SSE (recommended next step)
+| Pattern | Paperclip's Approach | Our Adaptation |
+|---------|---------------------|----------------|
+| **Real-time channel** | WebSocket on `/api/companies/{id}/events/ws` | WebSocket on `/ws/events` |
+| **Event bus** | Node.js EventEmitter, scoped by company | EventEmitter, scoped by project |
+| **UI updates** | TanStack Query cache invalidation on WS event | Same pattern |
+| **Agent IPC** | REST API — agents are HTTP clients | Same — bash CLIs `curl` the local server |
+| **State store** | PostgreSQL + Drizzle ORM | SQLite + direct queries (lighter weight) |
+| **Toast notifications** | Rate-limited (3/10s), suppressed during reconnect | Same |
+| **Log streaming** | WebSocket + HTTP polling fallback | WebSocket + `GET /events?since=` fallback |
+| **Adapter plugins** | 10 adapter types for different AI runtimes | Not needed yet — we only track Claude sessions |
 
-| Task | Effort | Impact |
-|------|--------|--------|
-| Add `.conductor-events.jsonl` append to CLI commands | 1-2 hours | Enables all downstream consumers |
-| Add event rotation (clear on `conductor clear`) | 30 min | Prevents unbounded growth |
-| Upgrade `serve-dashboard` to Python `aiohttp` with SSE | 2-3 hours | Instant tile updates in browser |
-| Switch dashboard JS from fetch-polling to `EventSource` | 1 hour | Eliminates polling overhead |
-| Add `--events` flag to serve-dashboard for SSE endpoint | 30 min | Backward compatible |
+### What We Don't Need From Paperclip
 
-**Total: ~5-6 hours. Zero new runtime dependencies (Python already optional).**
-
-### v0.7: Terminal Watch
-
-| Task | Effort | Impact |
-|------|--------|--------|
-| Add `claude-conductor watch` command | 2-3 hours | Terminal-native tile view |
-| ANSI tile renderer (status colors, layout) | 1-2 hours | Visual parity with dashboard |
-| File watch loop (`inotifywait` with `sleep` fallback) | 1 hour | Cross-platform |
-
-### v1.0+: Tray App (optional, future)
-
-| Task | Effort | Impact |
-|------|--------|--------|
-| Tauri project scaffolding | 2-3 hours | Cross-platform tray binary |
-| File watcher for events | 1-2 hours | Real-time tray updates |
-| Native notifications | 1 hour | OS-level alerts |
-| Floating mini-dashboard | 2-3 hours | Always-visible tiles |
+- **PostgreSQL** — SQLite is sufficient for single-machine, single-user
+- **Auth system** — Local tool, no multi-user auth needed (localhost only)
+- **Org chart / company hierarchy** — We have personas, not employees
+- **Ticket system** — Sessions are simpler than Paperclip's issue model
+- **Adapter plugin architecture** — We only manage Claude Code sessions
+- **Budget/cost tracking** — Not in scope for conductor
 
 ---
 
-## 5. Decision Matrix
+## 6. Why OS-Native Widgets Are a Dead End
 
-| Option | Latency | Dependencies | Complexity | Platform | Fits v0.x? |
-|--------|---------|-------------|------------|----------|-------------|
-| **A: SSE** | ~100ms | Python (existing) | Low | Browser | Yes |
-| **B: Unix Socket** | ~10ms | socat | Medium | macOS/Linux | Stretch |
-| **C: OS Widgets** | 5-15 min | Swift/QML | High | OS-specific | No |
-| **D: Tray App** | ~100ms | Tauri/Rust | Medium-High | macOS/Linux | No |
-| **E: Terminal TUI** | ~100ms | bash only | Low | Terminal | Yes |
-| **F: WebSocket** | ~50ms | Python | Medium | Browser | Overkill |
+Research confirmed that platform-native widget APIs are unsuitable for real-time session monitoring:
 
----
+| Platform | API | Fatal Limitation |
+|----------|-----|-----------------|
+| **macOS** | WidgetKit (Sonoma+) | Hard refresh floor of ~5 minutes (40-70 refreshes/day budget). Requires Swift/Xcode. |
+| **Windows** | Windows App SDK Widgets | Windows 11 only. Requires MSIX packaging. Limited to Adaptive Cards rendering. |
+| **Linux** | KDE Plasma / GNOME Extensions | Fragmented — must build separately for each DE. Tiny audience overlap. |
 
-## 6. Recommendation
-
-**For v0.6:** Implement Layer 1 (event log) + Layer 2 (SSE). This gives:
-- Instant tile updates (no more 3-second polling)
-- An event stream that future consumers (TUI, tray, mobile) can tap into
-- Zero new dependencies beyond what's already optional
-- Backward compatibility (fetch-polling still works if SSE server isn't running)
-
-**For v0.7:** Add `claude-conductor watch` for terminal-native tiles.
-
-**Defer:** OS widgets, tray apps, and Unix socket event bus until the user base or use case demands it.
-
-The key architectural insight is: **add the event log first**. It's a 1-2 hour change to the CLI that unlocks every future update mechanism. Whether the consumer is SSE, WebSocket, file tail, tray app, or terminal TUI — they all read from the same event stream.
+All three require native compiled code, have restrictive refresh budgets, and provide less visual control than a WebView. A Tauri app with a system tray gives better OS integration than any of these while being cross-platform.
 
 ---
 
-## Appendix A: Event Log Schema
+## 7. Open Questions
+
+1. **Server language:** Node.js/Express (familiar, huge ecosystem) vs Deno (modern, single binary, TypeScript native) vs Rust/Axum (embedded in Tauri, eliminates separate server process)?
+
+2. **SQLite vs keep SESSIONS.md:** SQLite is better for the server, but SESSIONS.md has value as a human-readable, git-trackable artifact. Keep both? SQLite as source of truth, SESSIONS.md as generated export?
+
+3. **Tauri vs standalone server first:** Build the server as a standalone process (Phase 1), then wrap in Tauri (Phase 2)? Or go straight to Tauri with an embedded Rust server?
+
+4. **Multi-project support:** The current conductor is per-project. The desktop app should show sessions across all active projects. How to discover/register projects?
+
+5. **Backward compatibility:** Should the bash CLI continue to work without the server running? (Recommendation: yes, with graceful degradation.)
+
+---
+
+## Appendix A: Event Schema
 
 ```jsonl
-// Session lifecycle
-{"ts":"...","type":"session.created","session":1,"data":{"persona":"Akira","task":"Implement auth","files":"src/auth/","depends":""}}
-{"ts":"...","type":"session.status","session":1,"data":{"status":"coding","activity":"writing tests","prev_status":"planning"}}
-{"ts":"...","type":"session.done","session":1,"data":{"duration":"2h 15m"}}
-{"ts":"...","type":"session.merged","session":1,"data":{}}
-{"ts":"...","type":"session.abandoned","session":1,"data":{"reason":"superseded by #3"}}
-
-// Coordination
-{"ts":"...","type":"conflict.detected","data":{"sessions":[2,3],"overlap":["src/lib/"]}}
-{"ts":"...","type":"dependency.unblocked","data":{"session":3,"unblocked_by":1}}
-
-// Dashboard
-{"ts":"...","type":"dashboard.regenerated","data":{"active_count":4,"version":"abc123"}}
+{"id":1,"ts":"2026-03-30T10:15:23Z","type":"session.created","project":"myapp","session":3,"data":{"persona":"Akira","task":"Implement auth","files":"src/auth/"}}
+{"id":2,"ts":"2026-03-30T10:15:30Z","type":"session.status","project":"myapp","session":3,"data":{"status":"coding","activity":"writing tests","prev_status":"planning"}}
+{"id":3,"ts":"2026-03-30T10:45:00Z","type":"conflict.detected","project":"myapp","data":{"sessions":[2,3],"overlap":["src/lib/"]}}
+{"id":4,"ts":"2026-03-30T12:30:00Z","type":"session.done","project":"myapp","session":3,"data":{"duration":"2h 15m"}}
+{"id":5,"ts":"2026-03-30T12:31:00Z","type":"dependency.unblocked","project":"myapp","data":{"session":4,"unblocked_by":3}}
 ```
 
-## Appendix B: SSE Server Skeleton
+## Appendix B: Paperclip Source References
 
-```python
-#!/usr/bin/env python3
-"""conductor-sse — SSE server for real-time dashboard updates."""
+| Component | File | Key Pattern |
+|-----------|------|------------|
+| Event bus | `server/src/services/live-events.ts` | `publishLiveEvent()` / `subscribeCompanyLiveEvents()` |
+| WebSocket server | `server/src/realtime/live-events-ws.ts` | Auth + ping/pong + event forwarding |
+| Event types | `packages/shared/src/constants.ts` | `LIVE_EVENT_TYPES` enum |
+| React provider | `ui/src/context/LiveUpdatesProvider.tsx` | WS connect + TanStack Query invalidation |
+| Log streaming | `ui/src/components/transcript/useLiveRunTranscripts.ts` | Dual-channel WS + HTTP polling |
+| Agent statuses | `packages/shared/src/constants.ts` | `AGENT_STATUSES` |
+| DB schema | `packages/db/src/schema/` | Drizzle ORM tables |
+| Heartbeat protocol | `docs/guides/agent-developer/heartbeat-protocol.md` | REST API contract |
 
-import asyncio
-import json
-import os
-from aiohttp import web
+## Appendix C: Prior Art Summary
 
-EVENTS_FILE = ".conductor-events.jsonl"
-DASHBOARD_FILE = ".conductor-dashboard.html"
-
-async def sse_handler(request):
-    response = web.StreamResponse()
-    response.headers["Content-Type"] = "text/event-stream"
-    response.headers["Cache-Control"] = "no-cache"
-    response.headers["Connection"] = "keep-alive"
-    await response.prepare(request)
-
-    events_path = os.path.join(request.app["root"], EVENTS_FILE)
-
-    with open(events_path, "r") as f:
-        f.seek(0, 2)  # Start at end of file
-        while True:
-            line = f.readline()
-            if line.strip():
-                await response.write(f"data: {line}\n\n".encode())
-            else:
-                await asyncio.sleep(0.1)
-
-async def dashboard_handler(request):
-    path = os.path.join(request.app["root"], DASHBOARD_FILE)
-    return web.FileResponse(path, headers={
-        "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0"
-    })
-
-app = web.Application()
-app.router.add_get("/", dashboard_handler)
-app.router.add_get("/events", sse_handler)
-
-if __name__ == "__main__":
-    import sys
-    app["root"] = sys.argv[1] if len(sys.argv) > 1 else "."
-    web.run_app(app, host="127.0.0.1", port=8484)
-```
-
-## Appendix C: Dashboard EventSource Client
-
-```javascript
-// Replace fetch-polling with SSE
-if (typeof EventSource !== 'undefined') {
-    const events = new EventSource('/events');
-
-    events.onmessage = function(e) {
-        const event = JSON.parse(e.data);
-
-        switch (event.type) {
-            case 'session.status':
-                updateTileStatus(event.session, event.data);
-                break;
-            case 'session.created':
-            case 'session.done':
-            case 'session.merged':
-            case 'conflict.detected':
-                // Full refresh for structural changes
-                refreshDashboard();
-                break;
-            case 'dashboard.regenerated':
-                if (event.data.version !== currentVersion) {
-                    currentVersion = event.data.version;
-                    refreshDashboard();
-                }
-                break;
-        }
-    };
-
-    events.onerror = function() {
-        // Fallback to polling if SSE fails
-        console.log('SSE disconnected, falling back to polling');
-        startFetchPolling();
-    };
-} else {
-    // Browser doesn't support SSE, use existing polling
-    startFetchPolling();
-}
-```
+| Tool | Update Mechanism | Takeaway |
+|------|-----------------|----------|
+| **Paperclip** | WebSocket + EventEmitter + TanStack Query invalidation | Gold standard for this use case |
+| **VS Code** | Extension message bus + TreeDataProvider `onDidChangeTreeData` | Event-driven refresh pattern |
+| **CatLight** (CI monitor) | Tray icon color = aggregate status + popup dashboard for detail | Tray UX model to follow |
+| **Slack/Discord** | Two-tier badges (dot = activity, number = action needed) | Badge model for session counts |
+| **BuildNotify** | System tray + cctray.xml feed polling | Simple tray monitor precedent |
