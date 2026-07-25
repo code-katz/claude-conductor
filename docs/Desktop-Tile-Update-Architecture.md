@@ -2,7 +2,7 @@
 
 **Prepared:** March 30, 2026
 **Author:** Claude (research session)
-**Context:** Investigating how to keep desktop tiles updated with Claude session activities and statuses in real-time. Goal: a rich desktop app experience with a local server.
+**Context:** Investigating how to keep desktop tiles updated with Claude session activities and statuses in real-time. Goal: local server + browser-based React dashboard with real-time WebSocket updates.
 
 ---
 
